@@ -1,10 +1,68 @@
 import 'package:flutter/material.dart';
 
+import '../services/token_storage.dart';
+import '../services/api_service.dart'; // ✅ NEW: our backend connector
 import 'home_screen.dart';
 import 'register_screens.dart';
 
-class LoginScreen extends StatelessWidget {
+// ✅ CHANGE 1: StatelessWidget → StatefulWidget
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  // ✅ CHANGE 2: controllers to read what the user typed
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  // ✅ NEW: UI state
+  bool _isLoading = false;
+  String _errorMessage = '';
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  // ✅ CHANGE 3: the real login logic
+  Future<void> _login() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      // Ask the backend!
+      final result = await ApiService.login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+
+      // 💾 NEW: save the keycard in the device wallet
+      await TokenStorage.saveToken(result['access_token'] as String);
+
+      // Look at your Flutter terminal — the JWT arrives here!
+      debugPrint('✅ Login successful! JWT: ${result['access_token']}');
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +111,7 @@ class LoginScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 28),
                 TextField(
+                  controller: _emailController, // ✅ NEW
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Email',
@@ -67,6 +126,7 @@ class LoginScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 TextField(
+                  controller: _passwordController, // ✅ NEW
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
@@ -79,6 +139,23 @@ class LoginScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                // ✅ NEW: red error box (only visible when there's an error)
+                if (_errorMessage.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _errorMessage,
+                      style: TextStyle(color: Colors.red.shade700),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Align(
                   alignment: Alignment.centerRight,
@@ -99,21 +176,24 @@ class LoginScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const HomeScreen(),
-                        ),
-                      );
-                    },
-                    child: const Text(
-                      'Login',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    // ✅ NEW: call backend, disable button while loading
+                    onPressed: _isLoading ? null : _login,
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text(
+                            'Login',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 20),

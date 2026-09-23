@@ -1,0 +1,23 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
+class TokenStorage {
+  static const String _key = 'jwt_token';
+
+  // 💾 Put the keycard in the wallet
+  static Future<void> saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, token);
+  }
+
+  // 👀 Look inside the wallet
+  static Future<String?> getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_key);
+  }
+
+  // 🗑️ Throw the keycard away (we'll use this for Logout later!)
+  static Future<void> clearToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+}

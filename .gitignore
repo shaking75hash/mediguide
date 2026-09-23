@@ -3,6 +3,9 @@
 *.log
 *.pyc
 *.swp
+.env
+.env.*
+!.env.example
 .DS_Store
 .atom/
 .build/
@@ -32,6 +35,10 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+
+# Python
+__pycache__/
+*.pyo
 
 # Symbolication related
 app.*.symbols

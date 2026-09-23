@@ -1,16 +1,45 @@
-# mediguide
+# MediGuide
 
-A new Flutter project.
+MediGuide is a Flutter healthcare app with a FastAPI backend for user authentication, doctor discovery, and appointment workflows.
 
-## Getting Started
+## Project Layout
 
-This project is a starting point for a Flutter application.
+- `lib/` - Flutter application, screens, models, widgets, and API services
+- `backend/` - FastAPI application and PostgreSQL connection helpers
+- `test/` - Flutter widget tests
 
-A few resources to get you started if this is your first Flutter project:
+## Requirements
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- Flutter SDK with Dart 3.13 or newer
+- Python 3.10 or newer
+- PostgreSQL
+
+## Configuration
+
+Copy `.env.example` to `.env` and provide the PostgreSQL connection values and a strong `SECRET_KEY`. The `.env` file is intentionally ignored by Git.
+
+## Run Locally
+
+Install the Flutter dependencies and start the app:
+
+```bash
+flutter pub get
+flutter run
+```
+
+Install the backend dependencies and start the API from the repository root:
+
+```bash
+pip install fastapi uvicorn psycopg2-binary bcrypt PyJWT python-dotenv
+uvicorn backend.main:app --reload
+```
+
+Run validation with:
+
+```bash
+flutter analyze
+flutter test
+```
 
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,

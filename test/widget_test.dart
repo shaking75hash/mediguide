@@ -10,16 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mediguide/main.dart';
 
 void main() {
-  testWidgets('MediGuide app transitions from splash to login screen', (
+  testWidgets('MediGuide app shows the login screen when signed out', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MediGuideApp());
-
-    expect(find.text('MediGuide'), findsOneWidget);
-    expect(find.text('Your Health, Your Choice'), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pump();
+    await tester.pumpWidget(const MediGuideApp(isLoggedIn: false));
 
     expect(find.text('Welcome back'), findsOneWidget);
   });

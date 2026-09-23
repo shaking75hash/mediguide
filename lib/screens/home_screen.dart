@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../data/providers.dart';
+import '../models/provider.dart';
+import '../services/api_service.dart';
 import '../widgets/provider_card.dart';
 import '../widgets/service_card.dart';
 import 'appointments_screen.dart';
+import 'book_appointment_screen.dart';
+import 'login_screen.dart';
 import 'profile_screen.dart';
-import 'provider_detail_screen.dart';
 import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -17,10 +20,83 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int selectedIndex = 0;
+  String _userName = 'User';
+
+  // Real data from the database
+  List<dynamic> _doctors = [];
+  bool _loadingDoctors = true;
+  List<dynamic> _myAppointments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserName();
+    _loadDoctors();
+    _loadMyAppointments();
+  }
+
+  Future<void> _loadUserName() async {
+    try {
+      final me = await ApiService.getMe();
+      if (mounted) {
+        setState(() {
+          _userName = me['name'] ?? 'User';
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ getMe failed: $e');
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
+  Future<void> _loadDoctors() async {
+    try {
+      final data = await ApiService.getDoctors();
+      if (mounted) setState(() => _doctors = data);
+    } catch (e) {
+      debugPrint('❌ Failed to load doctors: $e');
+    } finally {
+      if (mounted) setState(() => _loadingDoctors = false);
+    }
+  }
+
+  Future<void> _loadMyAppointments() async {
+    try {
+      final data = await ApiService.getMyAppointments();
+      if (mounted) setState(() => _myAppointments = data);
+    } catch (e) {
+      debugPrint('❌ Failed to load appointments: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final featuredProviders = providers.take(2).toList();
+    // Use REAL doctors from DB if available, otherwise fall back to mock data
+    final featuredProviders = _doctors.isNotEmpty
+        ? _doctors.take(2).map((doctor) {
+            final fee = doctor['consultation_fee'] ?? 0;
+            return Provider(
+              id: doctor['id'].toString(),
+              name: doctor['name'] ?? 'Doctor',
+              type: 'Doctor',
+              specialty: doctor['specialty'] ?? 'General Care',
+              location: doctor['location'] ?? 'Unknown',
+              rating: 4.8,
+              reviewCount: 120,
+              price: fee is num ? fee.toDouble() : 0.0,
+              imageUrl: 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=400&q=80',
+              email: '',
+              phone: '',
+              workingHours: 'Available',
+            );
+          }).toList()
+        : providers.take(2).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F8FF),
@@ -43,11 +119,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.account_circle_outlined,
-              color: Color(0xFF123A6B),
-            ),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await ApiService.logout();
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
+            icon: const Icon(Icons.logout, color: Color(0xFF123A6B)),
           ),
         ],
       ),
@@ -57,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ---------- Greeting Banner ----------
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -71,9 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Hello, User 👋',
-                      style: TextStyle(
+                    Text(
+                      'Hello, $_userName 👋',
+                      style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
@@ -94,20 +178,20 @@ class _HomeScreenState extends State<HomeScreen> {
                               color: Colors.white.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: const Column(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Today',
+                                const Text(
+                                  'Upcoming',
                                   style: TextStyle(
                                     color: Colors.white70,
                                     fontSize: 12,
                                   ),
                                 ),
-                                SizedBox(height: 6),
+                                const SizedBox(height: 6),
                                 Text(
-                                  '2 Appointments',
-                                  style: TextStyle(
+                                  '${_myAppointments.length} Appointment${_myAppointments.length == 1 ? '' : 's'}',
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -156,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 22),
 
+              // ---------- Search Bar ----------
               TextField(
                 decoration: InputDecoration(
                   hintText: 'Search doctors, hospitals, clinics...',
@@ -172,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 28),
 
+              // ---------- Services ----------
               const Text(
                 'Healthcare Services',
                 style: TextStyle(
@@ -180,9 +266,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Color(0xFF123A6B),
                 ),
               ),
-
               const SizedBox(height: 15),
-
               Row(
                 children: [
                   Expanded(
@@ -197,9 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 12),
-
               Row(
                 children: [
                   Expanded(
@@ -220,6 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 28),
 
+              // ---------- Nearby Providers (REAL doctors from DB) ----------
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: const [
@@ -240,81 +323,132 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 15),
 
-              ...featuredProviders.map(
-                (provider) => Padding(
-                  padding: const EdgeInsets.only(bottom: 15),
-                  child: ProviderCard(
-                    provider: provider,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              ProviderDetailScreen(provider: provider),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
+              _loadingDoctors
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : Column(
+                      children: featuredProviders
+                          .map(
+                            (provider) => Padding(
+                              padding: const EdgeInsets.only(bottom: 15),
+                              child: ProviderCard(
+                                provider: provider,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => BookAppointmentScreen(
+                                        doctorId: int.parse(provider.id),
+                                        doctorName: provider.name,
+                                        specialty: provider.specialty,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
 
               const SizedBox(height: 18),
 
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 58,
-                      height: 58,
+              // ---------- Next Appointment (REAL data from DB) ----------
+              Builder(
+                builder: (_) {
+                  if (_myAppointments.isEmpty) {
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(18),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.grey.shade200),
                       ),
-                      child: const Icon(
-                        Icons.calendar_month,
-                        color: Colors.blue,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: const Row(
                         children: [
-                          Text(
-                            'Next appointment',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          Icon(
+                            Icons.calendar_month,
+                            color: Colors.blue,
+                            size: 28,
                           ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Dr. Ayesha Rahman • Today, 3:30 PM',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF123A6B),
+                          SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              'No upcoming appointments. Book one above!',
+                              style: TextStyle(color: Colors.grey),
                             ),
                           ),
                         ],
                       ),
+                    );
+                  }
+                  final next = _myAppointments.first;
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.grey.shade200),
                     ),
-                    const Icon(Icons.chevron_right, color: Colors.blue),
-                  ],
-                ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: const Icon(
+                            Icons.calendar_month,
+                            color: Colors.blue,
+                            size: 28,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Next appointment',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${next['doctor_name']} • ${next['date']} at ${next['time']}',
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF123A6B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.blue),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
           ),
         ),
       ),
+
+      // ---------- Bottom Navigation ----------
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: selectedIndex,
         selectedItemColor: Colors.blue,
@@ -331,7 +465,6 @@ class _HomeScreenState extends State<HomeScreen> {
               MaterialPageRoute(builder: (context) => const SearchScreen()),
             );
           }
-
           if (index == 2) {
             Navigator.push(
               context,
@@ -340,7 +473,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
           }
-
           if (index == 3) {
             Navigator.push(
               context,
