@@ -30,6 +30,34 @@ class ApiService {
     }
   }
 
+  static Future<List<dynamic>> searchDoctors(String query) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctors/search')
+          .replace(queryParameters: {'query': query}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to search doctors');
+    }
+  }
+
+  static Future<Map<String, dynamic>> getDoctorTrust(int doctorId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctors/$doctorId/trust'),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Failed to load trust profile');
+  }
+
+  static Future<Map<String, dynamic>> getDoctorInsights(int doctorId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctors/$doctorId/insights'),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Failed to load insights');
+  }
+
   // REGISTER a new user
   static Future<Map<String, dynamic>> register(
     String name,
@@ -134,5 +162,60 @@ class ApiService {
     );
     if (response.statusCode == 200) return json.decode(response.body);
     throw Exception('Could not load appointments');
+  }
+
+  static Future<void> cancelAppointment(int appointmentId) async {
+    final token = await TokenStorage.getToken();
+    final response = await http.delete(
+      Uri.parse('$baseUrl/appointments/$appointmentId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      final err = json.decode(response.body);
+      throw Exception(err['detail'] ?? 'Cancellation failed');
+    }
+  }
+
+  static Future<void> saveHealthRecord({
+    String? bp,
+    double? sugar,
+    double? weight,
+    String? notes,
+  }) async {
+    final token = await TokenStorage.getToken();
+    final body = {
+      if (bp != null) 'blood_pressure': bp,
+      if (sugar != null) 'blood_sugar': sugar,
+      if (weight != null) 'weight': weight,
+      if (notes != null) 'notes': notes,
+    };
+
+    final response = await http.post(
+      Uri.parse('$baseUrl/health-records'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(body),
+    );
+    if (response.statusCode != 201) throw Exception('Failed to save record');
+  }
+
+  static Future<List<dynamic>> getHealthRecords() async {
+    final token = await TokenStorage.getToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/health-records'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Failed to load records');
+  }
+
+  static Future<Map<String, dynamic>> getPriceComparison(int serviceId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/price-comparison?service_id=$serviceId'),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Failed to load price comparison');
   }
 }

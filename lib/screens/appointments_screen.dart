@@ -46,8 +46,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               child: ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: _appointments.length,
-                itemBuilder: (_, i) {
-                  final appt = _appointments[i];
+                itemBuilder: (context, index) {
+                  final appt = _appointments[index];
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: ListTile(
@@ -62,13 +62,67 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                       subtitle: Text(
                         '${appt['specialty']} • ${appt['date']} at ${appt['time']}',
                       ),
-                      trailing: Chip(
-                        label: Text(appt['status'] ?? ''),
-                        backgroundColor: Colors.green.shade50,
-                        labelStyle: const TextStyle(
-                          color: Colors.green,
-                          fontSize: 12,
-                        ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Chip(
+                            label: Text(appt['status'] ?? 'Scheduled'),
+                            backgroundColor: Colors.green.shade50,
+                            labelStyle: TextStyle(
+                              color: Colors.green.shade700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.cancel, color: Colors.red),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Cancel Appointment?'),
+                                  content: const Text(
+                                    'Are you sure you want to cancel this appointment?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('No'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('Yes, Cancel'),
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              if (confirm == true) {
+                                try {
+                                  await ApiService.cancelAppointment(
+                                    appt['id'],
+                                  );
+                                  await _load();
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Appointment cancelled'),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                } catch (e) {
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to cancel: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   );

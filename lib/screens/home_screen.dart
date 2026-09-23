@@ -7,7 +7,9 @@ import '../widgets/provider_card.dart';
 import '../widgets/service_card.dart';
 import 'appointments_screen.dart';
 import 'book_appointment_screen.dart';
+import 'doctor_profile_screen.dart';
 import 'login_screen.dart';
+import 'price_comparison_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
 
@@ -234,6 +236,35 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PriceComparisonScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.compare_arrows,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          'Compare Prices',
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange.shade700,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -340,13 +371,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: ProviderCard(
                                 provider: provider,
                                 onTap: () {
+                                  final doctorData = _doctors.firstWhere(
+                                    (d) => d['id'].toString() == provider.id,
+                                  );
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) => BookAppointmentScreen(
-                                        doctorId: int.parse(provider.id),
-                                        doctorName: provider.name,
-                                        specialty: provider.specialty,
+                                      builder: (_) => DoctorProfileScreen(
+                                        doctor: doctorData,
                                       ),
                                     ),
                                   );

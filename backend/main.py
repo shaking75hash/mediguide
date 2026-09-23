@@ -4,6 +4,7 @@ from fastapi import Depends
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from .database import get_db_connection
+from typing import Optional
 import bcrypt
 import jwt
 import datetime
@@ -36,6 +37,13 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     email: str
     password: str
+
+class HealthRecordCreate(BaseModel):
+    blood_pressure: Optional[str] = None
+    blood_sugar: Optional[float] = None
+    weight: Optional[float] = None
+    notes: Optional[str] = None
+
 def create_access_token(user_id: int):
     # What data do we want to put inside the keycard?
     payload = {
@@ -121,6 +129,55 @@ def get_doctors():
         })
     return doctors
 
+@app.get("/doctors/search")
+def search_doctors(query: str = ""):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    search_term = f"%{query}%"
+    cur.execute(
+        "SELECT id, name, specialty, location, consultation_fee, is_verified "
+        "FROM doctors "
+        "WHERE name ILIKE %s OR specialty ILIKE %s OR location ILIKE %s;",
+        (search_term, search_term, search_term),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    doctors = []
+    for row in rows:
+        doctors.append({
+            "id": row[0], "name": row[1], "specialty": row[2],
+            "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
+        })
+    return doctors
+
+@app.get("/price-comparison")
+def get_price_comparison(service_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT name, specialty, location, consultation_fee
+           FROM doctors ORDER BY consultation_fee ASC;"""
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return {
+        "service_id": service_id,
+        "providers": [
+            {
+                "doctor_name": row[0],
+                "specialty": row[1],
+                "location": row[2],
+                "price": row[3],
+            }
+            for row in rows
+        ],
+    }
+
 @app.get("/doctors/{doctor_id}")
 def get_single_doctor(doctor_id: int):
     conn = get_db_connection()
@@ -136,6 +193,150 @@ def get_single_doctor(doctor_id: int):
     return {
         "id": row[0], "name": row[1], "specialty": row[2],
         "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
+    }
+
+@app.get("/doctors/{doctor_id}/trust")
+def get_doctor_trust(doctor_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT overall_score, review_score, accreditation_score,
+               infrastructure_score, outcome_score, total_reviews, verified_reviews
+        FROM doctor_trust_profiles WHERE doctor_id = %s;
+    """, (doctor_id,))
+    profile = cur.fetchone()
+
+    cur.execute("""
+        SELECT body, level, valid_until FROM accreditations
+        WHERE doctor_id = %s AND is_active = TRUE;
+    """, (doctor_id,))
+    accreditations = [
+        {"body": r[0], "level": r[1], "valid_until": str(r[2])}
+        for r in cur.fetchall()
+    ]
+
+    cur.execute("""
+        SELECT u.name, pr.rating, pr.comment, pr.created_at
+        FROM patient_reviews pr
+        LEFT JOIN users u ON pr.patient_id = u.id
+        WHERE pr.doctor_id = %s AND pr.is_verified = TRUE
+        ORDER BY pr.created_at DESC LIMIT 5;
+    """, (doctor_id,))
+    reviews = [
+        {
+            "patient": r[0] or "Anonymous",
+            "rating": r[1],
+            "comment": r[2],
+            "date": str(r[3])[:10],
+        }
+        for r in cur.fetchall()
+    ]
+
+    cur.close()
+    conn.close()
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Trust profile not found")
+
+    return {
+        "overall_score": float(profile[0]),
+        "breakdown": {
+            "reviews": float(profile[1]),
+            "accreditation": float(profile[2]),
+            "infrastructure": float(profile[3]),
+            "outcomes": float(profile[4]),
+        },
+        "total_reviews": profile[5],
+        "verified_reviews": profile[6],
+        "accreditations": accreditations,
+        "recent_reviews": reviews,
+    }
+
+@app.get("/doctors/{doctor_id}/insights")
+def get_doctor_insights(doctor_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT d.consultation_fee, d.specialty, tp.overall_score, tp.verified_reviews
+        FROM doctors d
+        LEFT JOIN doctor_trust_profiles tp ON d.id = tp.doctor_id
+        WHERE d.id = %s;
+    """, (doctor_id,))
+    doc = cur.fetchone()
+    if not doc:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    consultation_fee = float(doc[0] or 0)
+    specialty = doc[1]
+    trust_score = float(doc[2] or 0)
+    verified_reviews = doc[3] or 0
+
+    cur.execute("""
+        SELECT AVG(pp.price) FROM provider_prices pp
+        JOIN medical_services ms ON pp.service_id = ms.id
+        WHERE pp.doctor_id = %s AND ms.category = 'Diagnostics';
+    """, (doctor_id,))
+    avg_diagnostics = cur.fetchone()[0] or 0
+
+    estimated_total = consultation_fee + float(avg_diagnostics)
+
+    cur.execute("""
+        SELECT COUNT(*) FROM appointments
+        WHERE doctor_id = %s
+        AND appointment_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+        AND status = 'scheduled';
+    """, (doctor_id,))
+    upcoming_count = cur.fetchone()[0]
+
+    if upcoming_count <= 5:
+        predicted_wait = "5-10 min"
+        wait_level = "low"
+    elif upcoming_count <= 15:
+        predicted_wait = "15-30 min"
+        wait_level = "moderate"
+    else:
+        predicted_wait = "30-60 min"
+        wait_level = "high"
+
+    cur.execute("""
+        SELECT AVG(tp2.overall_score), MIN(tp2.overall_score), MAX(tp2.overall_score)
+        FROM doctor_trust_profiles tp2
+        JOIN doctors d2 ON tp2.doctor_id = d2.id
+        WHERE d2.specialty = %s;
+    """, (specialty,))
+    peer_stats = cur.fetchone()
+    avg_peer_score = float(peer_stats[0] or 0)
+
+    if trust_score >= avg_peer_score + 0.3:
+        quality_vs_peers = "Above Average"
+    elif trust_score >= avg_peer_score - 0.3:
+        quality_vs_peers = "Average"
+    else:
+        quality_vs_peers = "Below Average"
+
+    cur.close()
+    conn.close()
+
+    return {
+        "estimated_cost": {
+            "consultation": consultation_fee,
+            "avg_diagnostics": round(float(avg_diagnostics), 2),
+            "total_estimate": round(estimated_total, 2),
+        },
+        "predicted_wait": {
+            "time": predicted_wait,
+            "level": wait_level,
+            "upcoming_appointments": upcoming_count,
+        },
+        "quality_comparison": {
+            "doctor_score": trust_score,
+            "peer_average": round(avg_peer_score, 2),
+            "verdict": quality_vs_peers,
+            "verified_reviews": verified_reviews,
+        },
     }
 
 @app.post("/doctors", status_code=201)
@@ -359,3 +560,78 @@ def my_appointments(patient_id: int = Depends(get_current_user)):
         }
         for r in rows
     ]
+
+
+@app.delete("/appointments/{appointment_id}")
+def cancel_appointment(
+    appointment_id: int,
+    current_user_id: int = Depends(get_current_user),
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id FROM appointments WHERE id = %s AND patient_id = %s;",
+        (appointment_id, current_user_id),
+    )
+    if cur.fetchone() is None:
+        cur.close()
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail="Appointment not found or unauthorized",
+        )
+
+    cur.execute("DELETE FROM appointments WHERE id = %s;", (appointment_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"message": "Appointment cancelled successfully"}
+
+
+@app.post("/health-records", status_code=201)
+def add_health_record(
+    record: HealthRecordCreate,
+    current_user_id: int = Depends(get_current_user),
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO patient_records (user_id, blood_pressure, blood_sugar, weight, notes)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id;""",
+        (
+            current_user_id,
+            record.blood_pressure,
+            record.blood_sugar,
+            record.weight,
+            record.notes,
+        ),
+    )
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"id": new_id, "message": "Health record saved"}
+
+
+@app.get("/health-records")
+def get_health_records(current_user_id: int = Depends(get_current_user)):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, record_date, blood_pressure, blood_sugar, weight, notes "
+        "FROM patient_records WHERE user_id = %s ORDER BY record_date DESC;",
+        (current_user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row[0], "date": str(row[1]), "bp": row[2],
+            "sugar": row[3], "weight": row[4], "notes": row[5]
+        })
+    return records
