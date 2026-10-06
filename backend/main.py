@@ -38,6 +38,13 @@ class UserLogin(BaseModel):
     email: str
     password: str
 
+class UserProfileUpdate(BaseModel):
+    name: str
+    blood_group: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    medical_history: Optional[str] = None
+
 class HealthRecordCreate(BaseModel):
     blood_pressure: Optional[str] = None
     blood_sugar: Optional[float] = None
@@ -92,7 +99,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 def get_me(current_user_id: int = Depends(get_current_user)):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, email FROM users WHERE id = %s;", (current_user_id,))
+    cur.execute(
+        """SELECT id, name, email, blood_group, height_cm, weight_kg, medical_history
+           FROM users WHERE id = %s;""",
+        (current_user_id,),
+    )
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -104,7 +115,61 @@ def get_me(current_user_id: int = Depends(get_current_user)):
         "id": row[0],
         "name": row[1],
         "email": row[2],
+        "blood_group": row[3],
+        "height_cm": row[4],
+        "weight_kg": row[5],
+        "medical_history": row[6],
         "message": f"Welcome back, {row[1]}! Your token is valid."
+    }
+
+@app.put("/me")
+def update_me(
+    profile: UserProfileUpdate,
+    current_user_id: int = Depends(get_current_user),
+):
+    name = profile.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    if profile.height_cm is not None and not 30 <= profile.height_cm <= 300:
+        raise HTTPException(status_code=400, detail="Height must be between 30 and 300 cm")
+    if profile.weight_kg is not None and not 1 <= profile.weight_kg <= 500:
+        raise HTTPException(status_code=400, detail="Weight must be between 1 and 500 kg")
+    blood_group = profile.blood_group.strip().upper() if profile.blood_group else None
+    valid_blood_groups = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
+    if blood_group is not None and blood_group not in valid_blood_groups:
+        raise HTTPException(status_code=400, detail="Select a valid blood group")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE users
+           SET name = %s, blood_group = %s, height_cm = %s,
+               weight_kg = %s, medical_history = %s
+           WHERE id = %s
+           RETURNING id, name, email, blood_group, height_cm, weight_kg, medical_history;""",
+        (
+            name,
+            blood_group or None,
+            profile.height_cm,
+            profile.weight_kg,
+            profile.medical_history.strip() if profile.medical_history else None,
+            current_user_id,
+        ),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id": row[0],
+        "name": row[1],
+        "email": row[2],
+        "blood_group": row[3],
+        "height_cm": row[4],
+        "weight_kg": row[5],
+        "medical_history": row[6],
     }
 
 @app.get("/")
