@@ -12,96 +12,149 @@ class ProviderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(15),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE5EAE6)),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1E293B).withValues(alpha: 0.04),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
         child: Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(15),
               child: SizedBox(
-                width: 60,
-                height: 60,
-                child: Image.network(
-                  provider.imageUrl,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      color: Colors.blue.shade50,
-                      child: const Center(
-                        child: Icon(Icons.image, color: Colors.blue),
+                width: 64,
+                height: 72,
+                child: provider.imageUrl.isEmpty
+                    ? _DoctorImagePlaceholder()
+                    : Image.network(
+                        provider.imageUrl,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return _DoctorImagePlaceholder();
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return _DoctorImagePlaceholder();
+                        },
                       ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.blue.shade50,
-                      child: const Icon(
-                        Icons.local_hospital,
-                        color: Colors.blue,
-                      ),
-                    );
-                  },
-                ),
               ),
             ),
-            const SizedBox(width: 15),
+            const SizedBox(width: 13),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     provider.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF123A6B),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
-                    '${provider.type} • ${provider.specialty}',
-                    style: const TextStyle(color: Colors.grey),
+                    provider.specialty,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 12,
+                    ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Row(
                     children: [
                       const Icon(
-                        Icons.location_on,
-                        size: 16,
-                        color: Colors.grey,
+                        Icons.location_on_outlined,
+                        size: 14,
+                        color: Color(0xFF84918A),
+                      ),
+                      const SizedBox(width: 2),
+                      Expanded(
+                        child: Text(
+                          provider.location,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF84918A),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (provider.price > 0) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      '৳${provider.price.toStringAsFixed(0)} consultation',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF315F45),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                        provider.reviewCount > 0
+                            ? Icons.star_rounded
+                            : Icons.rate_review_outlined,
+                        color: provider.reviewCount > 0
+                            ? const Color(0xFFE4A93B)
+                            : const Color(0xFF84918A),
+                        size: 15,
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        provider.location,
-                        style: const TextStyle(color: Colors.grey),
+                        provider.reviewCount > 0
+                            ? '${provider.rating.toStringAsFixed(1)} · ${provider.reviewCount} reviews'
+                            : 'Not rated yet',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            Column(
-              children: [
-                const Icon(Icons.star, color: Colors.amber, size: 20),
-                Text(
-                  provider.rating.toStringAsFixed(1),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  '${provider.reviewCount} reviews',
-                  style: const TextStyle(fontSize: 10, color: Colors.grey),
-                ),
-              ],
-            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF84918A)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DoctorImagePlaceholder extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFFE8F0EB),
+      child: const Icon(
+        Icons.medical_services_outlined,
+        color: Color(0xFF4A7C59),
+        size: 28,
       ),
     );
   }

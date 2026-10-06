@@ -5,10 +5,10 @@ import 'package:http/http.dart' as http;
 import 'token_storage.dart';
 
 class ApiService {
-  // When running on an Android emulator, use 10.0.2.2 instead of 127.0.0.1
-  // When running on Windows/web/iOS simulator, use 127.0.0.1
-  static const String baseUrl = 'http://127.0.0.1:8000';
-
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://127.0.0.1:8000',
+  );
   // Function to fetch all doctors
   static Future<List<dynamic>> getDoctors() async {
     try {
@@ -33,12 +33,21 @@ class ApiService {
   static Future<List<dynamic>> searchDoctors(String query) async {
     final response = await http.get(
       Uri.parse('$baseUrl/doctors/search')
-          .replace(queryParameters: {'query': query}),
+          .replace(queryParameters: {'query': query.trim()}),
     );
     if (response.statusCode == 200) {
       return json.decode(response.body);
     } else {
       throw Exception('Failed to search doctors');
+    }
+  }
+
+  static Future<List<dynamic>> getMedicalServices() async {
+    final response = await http.get(Uri.parse('$baseUrl/medical-services'));
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to load medical services');
     }
   }
 
@@ -213,7 +222,8 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getPriceComparison(int serviceId) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/price-comparison?service_id=$serviceId'),
+      Uri.parse('$baseUrl/price-comparison')
+          .replace(queryParameters: {'service_id': serviceId.toString()}),
     );
     if (response.statusCode == 200) return json.decode(response.body);
     throw Exception('Failed to load price comparison');

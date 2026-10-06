@@ -73,6 +73,8 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
+              final navigator = Navigator.of(context);
+
               await ApiService.saveHealthRecord(
                 bp: bpCtrl.text,
                 sugar: sugarCtrl.text.isNotEmpty
@@ -83,7 +85,9 @@ class _HealthRecordsScreenState extends State<HealthRecordsScreen> {
                     : null,
                 notes: notesCtrl.text,
               );
-              Navigator.pop(ctx);
+
+              if (!mounted) return;
+              navigator.pop();
               _loadRecords();
             },
             child: const Text('Save'),

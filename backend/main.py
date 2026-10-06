@@ -67,26 +67,25 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     # 🔍 DEBUG: What did the Bouncer receive?
     if not credentials:
-        print("❌ BOUNCER: No Authorization header received at all!")
+        print("BOUNCER: No Authorization header received.")
         raise credentials_exception
 
     token = credentials.credentials
-    print(f"🔍 BOUNCER: Received token starting with: {token[:25]}...")
-    print(f"🔍 BOUNCER: SECRET_KEY loaded = {SECRET_KEY is not None} (value: {str(SECRET_KEY)[:6]}...)")
+    print("BOUNCER: Bearer token received.")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        print(f"✅ BOUNCER: Token decoded! Payload = {payload}")
+        print("BOUNCER: Token decoded.")
         user_id: int = payload.get("user_id")
         if user_id is None:
-            print("❌ BOUNCER: Token has no user_id!")
+            print("BOUNCER: Token has no user_id.")
             raise credentials_exception
         return user_id
     except jwt.ExpiredSignatureError:
-        print("❌ BOUNCER: Token is EXPIRED!")
+        print("BOUNCER: Token is expired.")
         raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError as e:
-        print(f"❌ BOUNCER: Token INVALID → {e}")
+    except jwt.InvalidTokenError:
+        print("BOUNCER: Token is invalid.")
         raise credentials_exception
 
 @app.get("/me")
@@ -116,7 +115,10 @@ def home():
 def get_doctors():
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT id, name, specialty, location, consultation_fee, is_verified FROM doctors;")
+    cur.execute(
+        "SELECT id, name, specialty, location, consultation_fee, is_verified "
+        "FROM doctors ORDER BY consultation_fee ASC, id ASC;"
+    )
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -138,7 +140,8 @@ def search_doctors(query: str = ""):
     cur.execute(
         "SELECT id, name, specialty, location, consultation_fee, is_verified "
         "FROM doctors "
-        "WHERE name ILIKE %s OR specialty ILIKE %s OR location ILIKE %s;",
+        "WHERE name ILIKE %s OR specialty ILIKE %s OR location ILIKE %s "
+        "ORDER BY consultation_fee ASC, id ASC;",
         (search_term, search_term, search_term),
     )
     rows = cur.fetchall()
@@ -153,29 +156,61 @@ def search_doctors(query: str = ""):
         })
     return doctors
 
+@app.get("/medical-services")
+def get_medical_services():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, name, category, description "
+        "FROM medical_services ORDER BY category, name;"
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "description": row[3],
+        }
+        for row in rows
+    ]
+
 @app.get("/price-comparison")
 def get_price_comparison(service_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        """SELECT name, specialty, location, consultation_fee
-           FROM doctors ORDER BY consultation_fee ASC;"""
+        """SELECT facility.id, facility.name, facility.category,
+                  facility.location, facility.is_sample, offer.price
+           FROM facility_service_prices AS offer
+           JOIN diagnostic_facilities AS facility
+             ON facility.id = offer.facility_id
+           WHERE offer.service_id = %s
+           ORDER BY offer.price ASC, facility.name ASC;""",
+        (service_id,),
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
+    providers = [
+        {
+            "facility_id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "location": row[3],
+            "is_sample": row[4],
+            "price": float(row[5]),
+        }
+        for row in rows
+    ]
+    providers.sort(key=lambda provider: (provider["price"], provider["name"]))
+
     return {
         "service_id": service_id,
-        "providers": [
-            {
-                "doctor_name": row[0],
-                "specialty": row[1],
-                "location": row[2],
-                "price": row[3],
-            }
-            for row in rows
-        ],
+        "providers": providers,
     }
 
 @app.get("/doctors/{doctor_id}")
@@ -343,7 +378,7 @@ def get_doctor_insights(doctor_id: int):
 def create_doctor(new_doctor: DoctorCreate, current_user_id: int = Depends(get_current_user)):
 
     # ✅ Look at your terminal when you run this!
-    print(f"🔒 SECURE ACTION: User ID {current_user_id} is adding a doctor.")
+    print(f"SECURE ACTION: User ID {current_user_id} is adding a doctor.")
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -445,6 +480,9 @@ def login_user(credentials: UserLogin):
 
     # 3. Compare them!
     is_password_correct = bcrypt.checkpw(typed_password_bytes, db_hash_bytes)
+
+    if not is_password_correct:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # ✅ NEW: Generate the JWT Keycard!
     access_token = create_access_token(user_row[0])

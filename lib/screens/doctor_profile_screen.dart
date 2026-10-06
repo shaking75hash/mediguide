@@ -57,9 +57,11 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.doctor['name'] ?? 'Doctor Profile')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+      body: SafeArea(
+        bottom: true,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header Section
@@ -188,6 +190,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
