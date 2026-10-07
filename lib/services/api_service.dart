@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'token_storage.dart';
@@ -9,6 +10,27 @@ class ApiService {
     'API_BASE_URL',
     defaultValue: 'http://127.0.0.1:8000',
   );
+
+  static Future<http.Response> _sendAuthenticatedJson({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required String body,
+  }) async {
+    final token = await TokenStorage.getToken();
+    if (token == null || token.trim().isEmpty) {
+      throw Exception('Your session has ended. Please sign in again.');
+    }
+
+    final request = http.Request(method, uri)
+      ..headers.addAll(headers)
+      ..headers['Authorization'] = 'Bearer ${token.trim()}'
+      ..headers['Content-Type'] = 'application/json'
+      ..body = body;
+    debugPrint('$method ${uri.path}: bearer authorization attached.');
+    return http.Response.fromStream(await request.send());
+  }
+
   // Function to fetch all doctors
   static Future<List<dynamic>> getDoctors() async {
     try {
@@ -127,6 +149,34 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>> updateProfile({
+    required String name,
+    String? bloodGroup,
+    double? heightCm,
+    double? weightKg,
+    String? medicalHistory,
+  }) async {
+    final token = await TokenStorage.getToken();
+    if (token == null) {
+      throw Exception('Not logged in');
+    }
+    final response = await _sendAuthenticatedJson(
+      method: 'PUT',
+      uri: Uri.parse('$baseUrl/me'),
+      headers: {'Authorization': '******', 'Content-Type': 'application/json'},
+      body: json.encode({
+        'name': name.trim(),
+        'blood_group': bloodGroup,
+        'height_cm': heightCm,
+        'weight_kg': weightKg,
+        'medical_history': medicalHistory,
+      }),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    final error = json.decode(response.body);
+    throw Exception(error['detail'] ?? 'Could not update profile');
+  }
+
   // 🚪 Throw away the keycard
   static Future<void> logout() async {
     await TokenStorage.clearToken();
@@ -185,6 +235,41 @@ class ApiService {
     }
   }
 
+  static Future<List<dynamic>> getAppointmentCareNotes() async {
+    final token = await TokenStorage.getToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/appointments/care-notes'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    final error = json.decode(response.body);
+    throw Exception(error['detail'] ?? 'Could not load care notes');
+  }
+
+  static Future<void> saveAppointmentCareNotes({
+    required int appointmentId,
+    required String? doctorAdvice,
+    required String? revisitDate,
+    required String? revisitNotes,
+  }) async {
+    final token = await TokenStorage.getToken();
+    final response = await http.put(
+      Uri.parse('$baseUrl/appointments/$appointmentId/care-notes'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'doctor_advice': doctorAdvice,
+        'revisit_date': revisitDate,
+        'revisit_notes': revisitNotes,
+      }),
+    );
+    if (response.statusCode == 200) return;
+    final error = json.decode(response.body);
+    throw Exception(error['detail'] ?? 'Could not save care notes');
+  }
+
   static Future<void> saveHealthRecord({
     String? bp,
     double? sugar,
@@ -199,8 +284,9 @@ class ApiService {
       if (notes != null) 'notes': notes,
     };
 
-    final response = await http.post(
-      Uri.parse('$baseUrl/health-records'),
+    final response = await _sendAuthenticatedJson(
+      method: 'POST',
+      uri: Uri.parse('$baseUrl/health-records'),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',

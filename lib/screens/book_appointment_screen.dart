@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/appointment_notification_service.dart';
 import '../services/api_service.dart';
 
 class BookAppointmentScreen extends StatefulWidget {
@@ -63,16 +64,42 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       debugPrint(
         '📅 Booking doctor ${widget.doctorId} on $dateStr at $_selectedSlot',
       );
-      final result = await ApiService.bookAppointment(
+      await ApiService.bookAppointment(
         widget.doctorId,
         dateStr,
         _selectedSlot!,
       );
-      debugPrint('✅ Booking result: $result');
+      var reminderMessage = 'Appointment booked.';
+      try {
+        final permitted =
+            await AppointmentNotificationService.requestReminderPermissions();
+        if (!permitted) {
+          reminderMessage =
+              'Appointment booked. Enable notifications and exact alarms in your profile for a 30-minute reminder.';
+        } else {
+          final appointments = await ApiService.getMyAppointments();
+          final scheduled =
+              await AppointmentNotificationService.syncIfPermitted(
+            appointments,
+          );
+          if (!scheduled) {
+            reminderMessage =
+                'Appointment booked, but reminder permissions are not enabled.';
+          }
+        }
+      } catch (error) {
+        debugPrint('Could not schedule appointment reminder: $error');
+        reminderMessage =
+            'Appointment booked, but the reminder could not be scheduled. Check notification permissions in your profile.';
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Appointment booked!'),
+          SnackBar(
+            content: Text(
+              reminderMessage == 'Appointment booked.'
+                  ? 'Appointment booked with ${widget.doctorName}.'
+                  : reminderMessage,
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -102,11 +129,9 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
       appBar: AppBar(title: const Text('Book Appointment')),
       body: SafeArea(
         bottom: true,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+          children: [
               Text(
                 widget.doctorName,
                 style: const TextStyle(
@@ -188,36 +213,41 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                       ),
               ],
 
-              const Spacer(),
-
-              // ---- Confirm button ----
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton(
-                  onPressed: canBook ? _book : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: _isBooking
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : Text(
-                          canBook
-                              ? 'Confirm Booking'
-                              : 'Pick date & slot first',
-                          style: const TextStyle(fontSize: 18),
-                        ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: SizedBox(
+            height: 54,
+            child: ElevatedButton(
+              onPressed: canBook ? _book : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
-            ],
+              child: _isBooking
+                  ? const SizedBox(
+                      height: 22,
+                      width: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : Text(
+                      canBook ? 'Confirm Booking' : 'Pick date & slot first',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
           ),
         ),
       ),

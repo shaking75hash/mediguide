@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/appointment_notification_service.dart';
 import '../services/api_service.dart';
 
 class AppointmentsScreen extends StatefulWidget {
@@ -22,6 +23,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Future<void> _load() async {
     try {
       final data = await ApiService.getMyAppointments();
+      try {
+        await AppointmentNotificationService.syncIfPermitted(data);
+      } catch (error) {
+        debugPrint('Could not sync appointment reminders: $error');
+      }
       if (mounted) setState(() => _appointments = data);
     } catch (e) {
       if (mounted) {
@@ -37,45 +43,47 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('My Appointments')),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _appointments.isEmpty
-          ? const Center(child: Text('No appointments yet'))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _appointments.length,
-                itemBuilder: (context, index) {
-                  final appt = _appointments[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.blue.shade50,
-                        child: const Icon(Icons.person, color: Colors.blue),
-                      ),
-                      title: Text(
-                        appt['doctor_name'] ?? '',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        '${appt['specialty']} • ${appt['date']} at ${appt['time']}',
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Chip(
-                            label: Text(appt['status'] ?? 'Scheduled'),
-                            backgroundColor: Colors.green.shade50,
-                            labelStyle: TextStyle(
-                              color: Colors.green.shade700,
-                              fontSize: 12,
+      body: SafeArea(
+        bottom: false,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _appointments.isEmpty
+            ? const Center(child: Text('No appointments yet'))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                  itemCount: _appointments.length,
+                  itemBuilder: (context, index) {
+                    final appt = _appointments[index];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.blue.shade50,
+                          child: const Icon(Icons.person, color: Colors.blue),
+                        ),
+                        title: Text(
+                          appt['doctor_name'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          '${appt['specialty']} • ${appt['date']} at ${appt['time']}',
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Chip(
+                              label: Text(appt['status'] ?? 'Scheduled'),
+                              backgroundColor: Colors.green.shade50,
+                              labelStyle: TextStyle(
+                                color: Colors.green.shade700,
+                                fontSize: 12,
+                              ),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.cancel, color: Colors.red),
-                            onPressed: () async {
+                            IconButton(
+                              icon: const Icon(Icons.cancel, color: Colors.red),
+                              onPressed: () async {
                               final confirm = await showDialog<bool>(
                                 context: context,
                                 builder: (ctx) => AlertDialog(
@@ -102,6 +110,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                   await ApiService.cancelAppointment(
                                     appt['id'],
                                   );
+                                  final appointmentId = int.tryParse(
+                                    appt['id'].toString(),
+                                  );
+                                  if (appointmentId != null) {
+                                    try {
+                                      await AppointmentNotificationService
+                                          .cancelReminder(appointmentId);
+                                    } catch (error) {
+                                      debugPrint(
+                                        'Could not cancel appointment reminder: $error',
+                                      );
+                                    }
+                                  }
                                   await _load();
                                   if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -120,15 +141,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                                   );
                                 }
                               }
-                            },
-                          ),
-                        ],
+                              },
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
+      ),
     );
   }
 }

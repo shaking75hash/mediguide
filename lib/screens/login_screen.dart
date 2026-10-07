@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../services/token_storage.dart';
-import 'home_screen.dart';
+import 'app_shell.dart';
 import 'register_screens.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final String? initialEmail;
+
+  const LoginScreen({super.key, this.initialEmail});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -26,6 +28,19 @@ class _LoginScreenState extends State<LoginScreen> {
   static const Color _kBrandPrimary = Color(0xFF4A7C59);
   static const Color _kBorder = Color(0xFFE2E8F0);
   static const Color _kError = Color(0xFFDC2626);
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController.text = widget.initialEmail ?? '';
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
@@ -57,7 +72,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(builder: (_) => const AppShell()),
         );
       }
     } catch (error) {
@@ -122,7 +137,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: Border.all(color: _kBorder),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
+                        color: Colors.black.withValues(alpha: 0.03),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -198,7 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: _kError.withOpacity(0.1),
+                            color: _kError.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import '../services/token_storage.dart';
+import 'app_shell.dart';
+import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -14,6 +17,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _showSignInAction = false;
   String? _errorMessage;
 
   // Design Tokens (Matched to Login/Home)
@@ -29,6 +33,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _showSignInAction = false;
     });
 
     try {
@@ -51,6 +56,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
         Navigator.pop(context);
       }
     } catch (error) {
+      if (_isDuplicateEmail(error)) {
+        try {
+          final result = await ApiService.login(
+            _emailController.text.trim(),
+            _passwordController.text,
+          );
+          final token = result['access_token'];
+          if (token is! String || token.isEmpty) {
+            throw const FormatException(
+              'Login response did not include an access token.',
+            );
+          }
+
+          await TokenStorage.saveToken(token);
+          if (mounted) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const AppShell()),
+              (_) => false,
+            );
+          }
+          return;
+        } catch (signInError) {
+          if (mounted) {
+            final signInMessage = signInError
+                .toString()
+                .replaceFirst('Exception: ', '')
+                .trim();
+            setState(() {
+              _errorMessage =
+                  'An account with this email already exists. '
+                  '${signInMessage.isEmpty ? 'Sign in with your existing password.' : 'Sign-in failed: $signInMessage'}';
+              _showSignInAction = true;
+            });
+          }
+          return;
+        }
+      }
+
       if (mounted) {
         final message = error.toString().replaceFirst('Exception: ', '').trim();
         setState(() {
@@ -62,6 +106,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  bool _isDuplicateEmail(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('email') &&
+        message.contains('already') &&
+        (message.contains('exist') || message.contains('registered'));
+  }
+
+  void _signInWithExistingAccount() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(initialEmail: _emailController.text.trim()),
+      ),
+    );
   }
 
   @override
@@ -111,7 +171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     border: Border.all(color: _kBorder),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
+                        color: Colors.black.withValues(alpha: 0.03),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -219,7 +279,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: _kError.withOpacity(0.1),
+                            color: _kError.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
@@ -242,6 +302,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ],
                           ),
                         ),
+                        if (_showSignInAction)
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : _signInWithExistingAccount,
+                            child: const Text('Sign in instead'),
+                          ),
                       ],
 
                       const SizedBox(height: 24),

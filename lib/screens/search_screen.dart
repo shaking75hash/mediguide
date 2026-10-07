@@ -290,37 +290,40 @@ class _SearchScreenState extends State<SearchScreen> {
         backgroundColor: const Color(0xFFF6F8F5),
         title: const Text('Find care'),
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'What are you looking for?',
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'What are you looking for?',
+                    style: TextStyle(
+                      color: _ink,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'Search specialists or compare test prices nearby.',
-                  style: TextStyle(color: _muted, fontSize: 14),
-                ),
-                const SizedBox(height: 18),
-                _buildSearchField(),
-                const SizedBox(height: 14),
-                _buildModeSelector(),
-              ],
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Search specialists or compare test prices nearby.',
+                    style: TextStyle(color: _muted, fontSize: 14),
+                  ),
+                  const SizedBox(height: 18),
+                  _buildSearchField(),
+                  const SizedBox(height: 14),
+                  _buildModeSelector(),
+                ],
+              ),
             ),
-          ),
-          Expanded(child: _buildResults()),
-        ],
+            Expanded(child: _buildResults()),
+          ],
+        ),
       ),
     );
   }
@@ -472,7 +475,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 36),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         _sectionHeading(
@@ -487,7 +490,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildSuggestions() {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 36),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         if (_mode == SearchMode.doctors) ...[
@@ -578,7 +581,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (_selectedService == null) {
       return ListView(
-        padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 2, 20, 36),
         children: [
           _sectionHeading('Choose a test'),
           const SizedBox(height: 12),
@@ -609,7 +612,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 36),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       children: [
         _sectionHeading(

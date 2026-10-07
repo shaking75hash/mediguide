@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/app_shell.dart';
+import 'services/appointment_notification_service.dart';
 import 'services/api_service.dart';
 
 class AppColors {
@@ -127,6 +128,14 @@ void main() async {
   } catch (_) {
     isLoggedIn = false;
   }
+  if (isLoggedIn) {
+    try {
+      final appointments = await ApiService.getMyAppointments();
+      await AppointmentNotificationService.syncIfPermitted(appointments);
+    } catch (error) {
+      debugPrint('Could not resync appointment reminders: $error');
+    }
+  }
 
   runApp(MediGuideApp(isLoggedIn: isLoggedIn));
 }
@@ -142,7 +151,7 @@ class MediGuideApp extends StatelessWidget {
       title: 'MediGuide',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: isLoggedIn ? const HomeScreen() : const LoginScreen(),
+      home: isLoggedIn ? const AppShell() : const LoginScreen(),
     );
   }
 }

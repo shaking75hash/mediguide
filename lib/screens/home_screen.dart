@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 import '../models/provider.dart';
+import '../services/appointment_notification_service.dart';
 import '../services/api_service.dart';
+import 'app_navigation.dart';
 import '../widgets/provider_card.dart';
-import 'appointments_screen.dart';
 import 'doctor_profile_screen.dart';
 import 'login_screen.dart';
-import 'profile_screen.dart';
-import 'search_screen.dart';
 
 // Premium Color Tokens - Top Level for cross-widget access
 const Color _kBgBase = Color(0xFFF9F9F7);
@@ -27,7 +26,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int selectedIndex = 0;
   String _userName = 'User';
   List<dynamic> _doctors = [];
   bool _loadingDoctors = true;
@@ -49,8 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       debugPrint('❌ getMe failed: $e');
       if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
+        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LoginScreen()),
           (route) => false,
         );
@@ -114,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: _kBgBase,
       body: SafeArea(
+        bottom: false,
         child: CustomScrollView(
           slivers: [
             SliverAppBar(
@@ -135,10 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: _kTextPrimary,
                   ),
                   tooltip: 'Profile',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                  ),
+                  onPressed: () => AppNavigation.of(context).onSelectTab(3),
                 ),
                 IconButton(
                   icon: const Icon(
@@ -147,10 +142,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   tooltip: 'Logout',
                   onPressed: () async {
+                    try {
+                      await AppointmentNotificationService.cancelAllAppointmentReminders();
+                    } catch (error) {
+                      debugPrint(
+                        'Could not clear appointment reminders: $error',
+                      );
+                    }
                     await ApiService.logout();
                     if (context.mounted) {
-                      Navigator.pushAndRemoveUntil(
+                      Navigator.of(
                         context,
+                        rootNavigator: true,
+                      ).pushAndRemoveUntil(
                         MaterialPageRoute(builder: (_) => const LoginScreen()),
                         (route) => false,
                       );
@@ -277,57 +281,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: selectedIndex,
-        selectedItemColor: _kBrandPrimary,
-        unselectedItemColor: _kTextSecondary,
-        backgroundColor: _kSurface,
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-        onTap: (index) {
-          setState(() => selectedIndex = index);
-          if (index == 1) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SearchScreen()),
-            );
-          }
-          if (index == 2) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AppointmentsScreen()),
-            );
-          }
-          if (index == 3) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-            );
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home_rounded),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search_outlined),
-            activeIcon: Icon(Icons.search_rounded),
-            label: 'Search',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today_rounded),
-            label: 'Appointments',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline_rounded),
-            activeIcon: Icon(Icons.person_rounded),
-            label: 'Profile',
-          ),
-        ],
-      ),
     );
   }
 
@@ -345,26 +298,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSearch() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SearchScreen()),
-    );
+    AppNavigation.of(context).onSelectTab(1);
   }
 
   void _openPriceComparison() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const SearchScreen(initialMode: SearchMode.tests),
-      ),
-    );
+    AppNavigation.of(context).onOpenPriceComparison();
   }
 
   void _openAppointments() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AppointmentsScreen()),
-    );
+    AppNavigation.of(context).onSelectTab(2);
   }
 
   Widget _buildWelcomeCard() {
@@ -455,7 +397,11 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(color: _kTextSecondary, fontSize: 15),
             ),
           ),
-          Icon(Icons.arrow_forward_ios_rounded, size: 15, color: _kTextSecondary),
+          Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 15,
+            color: _kTextSecondary,
+          ),
         ],
       ),
     );
@@ -546,10 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     SizedBox(height: 4),
                     Text(
                       'No upcoming appointments · Book a visit',
-                      style: TextStyle(
-                        color: _kTextSecondary,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: _kTextSecondary, fontSize: 12),
                     ),
                   ],
                 ),
