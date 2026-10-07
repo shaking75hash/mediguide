@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS appointments (
     UNIQUE (doctor_id, appointment_date, appointment_time)
 );
 
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS doctor_advice TEXT;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS revisit_date DATE;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS revisit_notes TEXT;
+
 CREATE TABLE IF NOT EXISTS doctor_trust_profiles (
     id SERIAL PRIMARY KEY,
     doctor_id INTEGER UNIQUE REFERENCES doctors(id) ON DELETE CASCADE,

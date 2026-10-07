@@ -2,7 +2,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Depends
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .database import get_db_connection
 from typing import Optional
 import bcrypt
@@ -50,6 +50,11 @@ class HealthRecordCreate(BaseModel):
     blood_sugar: Optional[float] = None
     weight: Optional[float] = None
     notes: Optional[str] = None
+
+class AppointmentCareNoteUpdate(BaseModel):
+    doctor_advice: Optional[str] = Field(default=None, max_length=5000)
+    revisit_date: Optional[str] = None
+    revisit_notes: Optional[str] = Field(default=None, max_length=1000)
 
 def create_access_token(user_id: int):
     # What data do we want to put inside the keycard?
@@ -691,6 +696,100 @@ def cancel_appointment(
     conn.close()
 
     return {"message": "Appointment cancelled successfully"}
+
+
+@app.get("/appointments/care-notes")
+def get_appointment_care_notes(
+    current_user_id: int = Depends(get_current_user),
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT a.id, d.name, d.specialty, a.appointment_date,
+                  a.appointment_time, a.doctor_advice, a.revisit_date,
+                  a.revisit_notes
+           FROM appointments a
+           JOIN doctors d ON d.id = a.doctor_id
+           WHERE a.patient_id = %s AND a.appointment_date <= CURRENT_DATE
+           ORDER BY a.appointment_date DESC, a.appointment_time DESC;""",
+        (current_user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [
+        {
+            "appointment_id": row[0],
+            "doctor_name": row[1],
+            "specialty": row[2],
+            "appointment_date": str(row[3]),
+            "appointment_time": str(row[4])[:5],
+            "doctor_advice": row[5],
+            "revisit_date": str(row[6]) if row[6] else None,
+            "revisit_notes": row[7],
+        }
+        for row in rows
+    ]
+
+
+@app.put("/appointments/{appointment_id}/care-notes")
+def update_appointment_care_notes(
+    appointment_id: int,
+    care_note: AppointmentCareNoteUpdate,
+    current_user_id: int = Depends(get_current_user),
+):
+    advice = care_note.doctor_advice.strip() if care_note.doctor_advice else None
+    revisit_notes = care_note.revisit_notes.strip() if care_note.revisit_notes else None
+
+    revisit_date = None
+    if care_note.revisit_date:
+        try:
+            revisit_date = datetime.date.fromisoformat(care_note.revisit_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Revisit date must be in YYYY-MM-DD format",
+            )
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT appointment_date FROM appointments
+           WHERE id = %s AND patient_id = %s;""",
+        (appointment_id, current_user_id),
+    )
+    appointment = cur.fetchone()
+    if appointment is None:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    if appointment[0] > datetime.date.today():
+        cur.close()
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Care notes can be added after the appointment date",
+        )
+    if revisit_date is not None and revisit_date < appointment[0]:
+        cur.close()
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Revisit date cannot be before the appointment",
+        )
+
+    cur.execute(
+        """UPDATE appointments
+           SET doctor_advice = %s, revisit_date = %s, revisit_notes = %s
+           WHERE id = %s AND patient_id = %s;""",
+        (advice or None, revisit_date, revisit_notes or None,
+         appointment_id, current_user_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"message": "Care notes saved"}
 
 
 @app.post("/health-records", status_code=201)
