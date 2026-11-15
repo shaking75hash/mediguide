@@ -58,8 +58,15 @@ CREATE TABLE IF NOT EXISTS diagnostic_facilities (
     name VARCHAR(255) NOT NULL UNIQUE,
     category VARCHAR(100) NOT NULL,
     location VARCHAR(100) NOT NULL,
-    is_sample BOOLEAN NOT NULL DEFAULT TRUE
+    is_sample BOOLEAN NOT NULL DEFAULT TRUE,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    source_url TEXT
 );
+
+ALTER TABLE diagnostic_facilities ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE diagnostic_facilities ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE diagnostic_facilities ADD COLUMN IF NOT EXISTS source_url TEXT;
 
 CREATE TABLE IF NOT EXISTS facility_service_prices (
     id SERIAL PRIMARY KEY,
@@ -87,6 +94,45 @@ VALUES
     ('Sample Rajshahi General Hospital', 'Hospital', 'Rajshahi', TRUE),
     ('Sample North Bengal Medical Centre', 'Hospital & Diagnostic Centre', 'Rajshahi', TRUE)
 ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO diagnostic_facilities (
+    name, category, location, is_sample, latitude, longitude, source_url
+)
+VALUES
+    (
+        'Tuberculosis Hospital Rajshahi',
+        'Hospital',
+        'Baharampur, Rajshahi',
+        FALSE,
+        24.3761516,
+        88.5795941,
+        'https://www.openstreetmap.org/way/499248787'
+    ),
+    (
+        'Rajshahi Shishu Hospital',
+        'Children''s Hospital',
+        'Kadirganj, Rajshahi',
+        FALSE,
+        24.3674935,
+        88.5886686,
+        'https://www.openstreetmap.org/node/5350285191'
+    ),
+    (
+        'Rajshahi Metropalitan Hospital',
+        'Hospital',
+        'Kadirganj, Rajshahi',
+        FALSE,
+        24.3685845,
+        88.5809741,
+        'https://www.openstreetmap.org/node/9590393412'
+    )
+ON CONFLICT (name) DO UPDATE SET
+    category = EXCLUDED.category,
+    location = EXCLUDED.location,
+    is_sample = EXCLUDED.is_sample,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude,
+    source_url = EXCLUDED.source_url;
 
 INSERT INTO facility_service_prices (facility_id, service_id, price)
 SELECT facility.id, service.id, offer.price

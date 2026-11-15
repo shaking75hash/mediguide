@@ -8,6 +8,7 @@ import 'app_navigation.dart';
 import '../widgets/provider_card.dart';
 import 'doctor_profile_screen.dart';
 import 'login_screen.dart';
+import 'your_care_screen.dart';
 
 // Premium Color Tokens - Top Level for cross-widget access
 const Color _kBgBase = Color(0xFFF9F9F7);
@@ -171,22 +172,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildWelcomeCard(),
-                    const SizedBox(height: 20),
-                    GestureDetector(
-                      onTap: _openSearch,
-                      child: _buildSearchCard(),
-                    ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 24),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _CategoryPill(
-                            icon: Icons.person_outline_rounded,
-                            label: 'Doctors',
-                            onTap: _openSearch,
-                          ),
-                          const SizedBox(width: 10),
                           _CategoryPill(
                             icon: Icons.calendar_month_outlined,
                             label: 'Appointments',
@@ -215,16 +205,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             fontWeight: FontWeight.w700,
                             color: _kTextPrimary,
                             letterSpacing: -0.3,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _openSearch,
-                          child: const Text(
-                            'See all',
-                            style: TextStyle(
-                              color: _kBrandPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
                           ),
                         ),
                       ],
@@ -295,10 +275,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (hour < 12) return 'Good morning';
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
-  }
-
-  void _openSearch() {
-    AppNavigation.of(context).onSelectTab(1);
   }
 
   void _openPriceComparison() {
@@ -372,41 +348,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSearchCard() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-      decoration: BoxDecoration(
-        color: _kSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _kBorder),
-        boxShadow: [
-          BoxShadow(
-            color: _kTextPrimary.withValues(alpha: 0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.search_rounded, color: _kBrandPrimary, size: 23),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Search doctors and specialties',
-              style: TextStyle(color: _kTextSecondary, fontSize: 15),
-            ),
-          ),
-          Icon(
-            Icons.arrow_forward_ios_rounded,
-            size: 15,
-            color: _kTextSecondary,
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDoctorsMessage({
     required IconData icon,
     required String title,
@@ -452,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildNextAppointmentCard() {
     if (_myAppointments.isEmpty) {
       return InkWell(
-        onTap: _openSearch,
+        onTap: _openYourCare,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           width: double.infinity,
@@ -482,7 +423,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Your care, on your schedule',
+                      'Your care',
                       style: TextStyle(
                         color: _kTextPrimary,
                         fontWeight: FontWeight.w700,
@@ -491,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'No upcoming appointments · Book a visit',
+                      'Find a doctor or hospital for your needs',
                       style: TextStyle(color: _kTextSecondary, fontSize: 12),
                     ),
                   ],
@@ -508,62 +449,112 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     final next = _myAppointments.first;
-    return GestureDetector(
-      onTap: _openAppointments,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _kSurface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _kBorder),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _kBrandLight,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.event_available_rounded,
-                color: _kBrandPrimary,
-                size: 24,
-              ),
+    return Column(
+      children: [
+        InkWell(
+          onTap: _openYourCare,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: _kSurface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _kBorder),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Next Appointment',
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.health_and_safety_outlined,
+                  color: _kBrandPrimary,
+                  size: 27,
+                ),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Your care',
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _kTextSecondary,
-                      letterSpacing: 0.05,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${next['doctor_name'] ?? 'Doctor'} • ${next['date']} at ${next['time']}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
                       color: _kTextPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
                     ),
                   ),
-                ],
-              ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: _kTextSecondary,
+                ),
+              ],
             ),
-            const Icon(Icons.chevron_right_rounded, color: _kTextSecondary),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: _openAppointments,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: _kSurface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _kBorder),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _kBrandLight,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.event_available_rounded,
+                    color: _kBrandPrimary,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Next Appointment',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _kTextSecondary,
+                          letterSpacing: 0.05,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${next['doctor_name'] ?? 'Doctor'} • ${next['date']} at ${next['time']}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _kTextPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: _kTextSecondary),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openYourCare() {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const YourCareScreen()),
     );
   }
 }

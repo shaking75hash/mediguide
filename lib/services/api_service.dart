@@ -52,16 +52,41 @@ class ApiService {
     }
   }
 
-  static Future<List<dynamic>> searchDoctors(String query) async {
+  static Future<List<dynamic>> searchDoctors(
+    String query, {
+    String location = '',
+  }) async {
     final response = await http.get(
       Uri.parse('$baseUrl/doctors/search')
-          .replace(queryParameters: {'query': query.trim()}),
+          .replace(
+            queryParameters: {
+              'query': query.trim(),
+              if (location.trim().isNotEmpty) 'location': location.trim(),
+            },
+          ),
     );
     if (response.statusCode == 200) {
       return json.decode(response.body);
     } else {
       throw Exception('Failed to search doctors');
     }
+  }
+
+  static Future<List<dynamic>> searchHospitals({
+    required String concern,
+    required String location,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/hospitals/search')
+          .replace(
+            queryParameters: {
+              'query': concern.trim(),
+              'location': location.trim(),
+            },
+          ),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Failed to search hospitals');
   }
 
   static Future<List<dynamic>> getMedicalServices() async {

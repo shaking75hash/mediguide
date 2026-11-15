@@ -202,17 +202,27 @@ def get_doctors():
     return doctors
 
 @app.get("/doctors/search")
-def search_doctors(query: str = ""):
+def search_doctors(query: str = "", location: str = ""):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    search_term = f"%{query}%"
+    search_term = f"%{query.strip()}%"
+    location_term = f"%{location.strip()}%"
     cur.execute(
         "SELECT id, name, specialty, location, consultation_fee, is_verified "
         "FROM doctors "
-        "WHERE name ILIKE %s OR specialty ILIKE %s OR location ILIKE %s "
+        "WHERE (%s = '' OR name ILIKE %s OR specialty ILIKE %s "
+        "OR location ILIKE %s) "
+        "AND (%s = '' OR location ILIKE %s) "
         "ORDER BY consultation_fee ASC, id ASC;",
-        (search_term, search_term, search_term),
+        (
+            query.strip(),
+            search_term,
+            search_term,
+            search_term,
+            location.strip(),
+            location_term,
+        ),
     )
     rows = cur.fetchall()
     cur.close()
@@ -225,6 +235,43 @@ def search_doctors(query: str = ""):
             "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
         })
     return doctors
+
+@app.get("/hospitals/search")
+def search_hospitals(location: str = "", query: str = ""):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    query_term = f"%{query.strip()}%"
+    cur.execute(
+        "SELECT id, name, category, location, is_sample, "
+        "latitude, longitude, source_url "
+        "FROM diagnostic_facilities "
+        "WHERE category ILIKE %s AND location ILIKE %s "
+        "AND (%s = '' OR name ILIKE %s OR category ILIKE %s) "
+        "ORDER BY name ASC, id ASC;",
+        (
+            "%hospital%",
+            f"%{location.strip()}%",
+            query.strip(),
+            query_term,
+            query_term,
+        ),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "location": row[3],
+            "is_sample": row[4],
+            "latitude": row[5],
+            "longitude": row[6],
+            "source_url": row[7],
+        }
+        for row in rows
+    ]
 
 @app.get("/medical-services")
 def get_medical_services():

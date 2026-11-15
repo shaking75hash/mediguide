@@ -73,8 +73,17 @@ secret. The API initializes the required schema and a demo doctor catalogue at
 startup. It does not copy local users, appointments, or health records.
 The diagnostic comparison catalogue also contains explicitly labelled sample
 Rajshahi facilities and example prices; these are for UI demonstration only,
-not verified offers. Doctor search returns matching specialties ordered by
-consultation fee, while diagnostic offers are ordered from lowest to highest.
+not verified offers. The home screen's Your care flow matches doctor name,
+specialty, and listed location, or matches hospital name/type and location.
+Hospital records do not include condition-specific services, and the sample
+listings must not be treated as medical recommendations. Mapped Rajshahi hospital
+locations use [OpenStreetMap data](https://www.openstreetmap.org/copyright)
+for [Tuberculosis Hospital Rajshahi](https://www.openstreetmap.org/way/499248787),
+[Rajshahi Shishu Hospital](https://www.openstreetmap.org/node/5350285191), and
+[Rajshahi Metropalitan Hospital](https://www.openstreetmap.org/node/9590393412).
+Map attribution is shown in the app; verify hospital details and services
+before travelling. Doctor search results are ordered by consultation fee,
+while diagnostic offers are ordered from lowest to highest.
 
 Push the repository to GitHub, sign in to [Render](https://dashboard.render.com),
 choose **New > Blueprint**, connect this repository, review the resources, and
