@@ -4,6 +4,11 @@ from fastapi import Depends
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from .database import get_db_connection
+from .osm_care_search import (
+    CareSearchError,
+    search_nearby_doctors,
+    search_nearby_hospitals,
+)
 from typing import Optional
 import bcrypt
 import jwt
@@ -272,6 +277,26 @@ def search_hospitals(location: str = "", query: str = ""):
         }
         for row in rows
     ]
+
+
+@app.get("/care/doctors/search")
+def search_nearby_doctors_endpoint(query: str, location: str):
+    try:
+        return search_nearby_doctors(query, location)
+    except CareSearchError as error:
+        raise HTTPException(
+            status_code=error.status_code, detail=str(error)
+        ) from error
+
+
+@app.get("/care/hospitals/search")
+def search_nearby_hospitals_endpoint(location: str):
+    try:
+        return search_nearby_hospitals(location)
+    except CareSearchError as error:
+        raise HTTPException(
+            status_code=error.status_code, detail=str(error)
+        ) from error
 
 @app.get("/medical-services")
 def get_medical_services():

@@ -60,18 +60,16 @@ class _YourCareScreenState extends State<YourCareScreen> {
         if (!mounted || requestId != _requestId) return;
         setState(() => _doctors = results);
       } else {
-        final results = await ApiService.searchHospitals(
-          concern: concern,
-          location: location,
-        );
+        final results = await ApiService.searchHospitals(location: location);
         if (!mounted || requestId != _requestId) return;
         setState(() => _hospitals = results);
       }
     } catch (error) {
       if (!mounted || requestId != _requestId) return;
       debugPrint('Your care search failed: $error');
+      final message = error.toString().replaceFirst('Exception: ', '');
       setState(() {
-        _error = 'Could not load results. Check your connection and try again.';
+        _error = message;
       });
     } finally {
       if (mounted && requestId == _requestId) {
@@ -165,10 +163,10 @@ class _YourCareScreenState extends State<YourCareScreen> {
                     decoration: InputDecoration(
                       labelText: _careType == _CareType.doctors
                           ? 'Disease, health concern, or specialty'
-                          : 'Hospital type or health concern',
+                          : 'Health concern (hospital services are unverified)',
                       hintText: _careType == _CareType.doctors
                           ? 'For example, heart care or cardiology'
-                          : 'For example, children’s hospital or tuberculosis',
+                          : 'Nearby hospitals will be shown for your area',
                       prefixIcon: const Icon(Icons.health_and_safety_outlined),
                       filled: true,
                       fillColor: Colors.white,
@@ -190,8 +188,8 @@ class _YourCareScreenState extends State<YourCareScreen> {
                     onFieldSubmitted: (_) => _findCare(),
                     decoration: InputDecoration(
                       labelText: 'Preferred location',
-                      hintText: 'For example, Rajshahi',
-                      helperText: 'Results only match locations listed in the directory.',
+                      hintText: 'For example, Kadirganj or Rajshahi',
+                      helperText: 'Searches OpenStreetMap within about 8 km. Your area is shared, not your health concern.',
                       prefixIcon: const Icon(Icons.location_on_outlined),
                       filled: true,
                       fillColor: Colors.white,
@@ -247,7 +245,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
     if (_error != null) {
       return _messageCard(
         icon: Icons.cloud_off_outlined,
-        title: 'Search is unavailable',
+        title: 'Search could not be completed',
         message: _error!,
       );
     }
@@ -257,7 +255,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
         return _messageCard(
           icon: Icons.person_search_outlined,
           title: 'No matching doctors',
-          message: 'Try a specialty name and check that the location matches the directory.',
+          message: 'No matching doctor listings were found within about 8 km. Try a broader Rajshahi area. OpenStreetMap coverage and specialty details may be incomplete.',
         );
       }
       return Column(
@@ -273,11 +271,23 @@ class _YourCareScreenState extends State<YourCareScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Matches are based on doctor name, specialty, and location—not a medical diagnosis.',
+            'Specialties are matched from OpenStreetMap tags, not a medical diagnosis. Confirm a doctor’s specialty before visiting.',
             style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
           ),
+          if (_doctors.any((doctor) => doctor['specialty_match'] != true)) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'No nearby listing explicitly matched that specialty. Doctors with no specialty listed on the map are shown; contact them to confirm.',
+              style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
+            ),
+          ],
           const SizedBox(height: 12),
           ..._doctors.map(_doctorCard),
+          const SizedBox(height: 4),
+          const Text(
+            'Map data © OpenStreetMap contributors.',
+            style: TextStyle(color: _muted, fontSize: 11, height: 1.4),
+          ),
         ],
       );
     }
@@ -286,8 +296,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
       return _messageCard(
         icon: Icons.location_city_outlined,
         title: 'No hospitals listed for this location',
-        message:
-            'Try a broader location or a hospital type listed in the directory. Contact hospitals to verify services.',
+        message: 'Try a broader Rajshahi area. OpenStreetMap may not list every hospital.',
       );
     }
     return Column(
@@ -303,7 +312,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Matched by hospital name/type and location only. Services are not verified; contact the hospital to confirm care for your condition.',
+          'Nearby hospitals are shown regardless of your concern because their services are not verified on the map. Contact the hospital to confirm care before visiting.',
           style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
         ),
         const SizedBox(height: 12),
@@ -319,6 +328,13 @@ class _YourCareScreenState extends State<YourCareScreen> {
 
   Widget _doctorCard(dynamic doctor) {
     final fee = doctor['consultation_fee'];
+    final isOpenStreetMap = doctor['source'] == 'openstreetmap';
+    final latitude = doctor['latitude'];
+    final longitude = doctor['longitude'];
+    final canOpenDirections =
+        isOpenStreetMap && latitude is num && longitude is num;
+    final distance = doctor['distance_km'];
+    final location = doctor['location']?.toString() ?? 'Location not listed';
     return Card(
       color: Colors.white,
       margin: const EdgeInsets.only(bottom: 10),
@@ -330,22 +346,33 @@ class _YourCareScreenState extends State<YourCareScreen> {
         title: Text(doctor['name']?.toString() ?? 'Doctor'),
         subtitle: Text(
           '${doctor['specialty'] ?? 'Specialty not listed'} · '
-          '${doctor['location'] ?? 'Location not listed'}',
+          '$location${distance is num ? ' · ${distance.toStringAsFixed(1)} km' : ''}',
         ),
-        trailing: Text(
-          fee == null ? '' : '৳$fee',
-          style: const TextStyle(color: _green, fontWeight: FontWeight.w700),
-        ),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => DoctorProfileScreen(
-                doctor: Map<String, dynamic>.from(doctor),
+        trailing: canOpenDirections
+            ? IconButton(
+                tooltip: 'Open directions in Google Maps',
+                onPressed: () => _openDirections(latitude, longitude),
+                icon: const Icon(Icons.directions_rounded, color: _green),
+              )
+            : Text(
+                fee == null ? '' : '৳$fee',
+                style: const TextStyle(
+                  color: _green,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          );
-        },
+        onTap: isOpenStreetMap
+            ? () => _openListing(doctor['source_url']?.toString())
+            : () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => DoctorProfileScreen(
+                      doctor: Map<String, dynamic>.from(doctor),
+                    ),
+                  ),
+                );
+              },
       ),
     );
   }
@@ -384,8 +411,31 @@ class _YourCareScreenState extends State<YourCareScreen> {
                 icon: const Icon(Icons.directions_rounded, color: _green),
               )
             : null,
+        onTap: hospital['source'] == 'openstreetmap'
+            ? () => _openListing(hospital['source_url']?.toString())
+            : null,
       ),
     );
+  }
+
+  Future<void> _openListing(String? sourceUrl) async {
+    final uri = sourceUrl == null ? null : Uri.tryParse(sourceUrl);
+    if (uri == null || uri.scheme != 'https') return;
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the map listing.')),
+        );
+      }
+    } catch (error) {
+      debugPrint('Could not open the map listing: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the map listing.')),
+        );
+      }
+    }
   }
 
   Future<void> _openDirections(num latitude, num longitude) async {

@@ -57,36 +57,43 @@ class ApiService {
     String location = '',
   }) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/doctors/search')
-          .replace(
-            queryParameters: {
-              'query': query.trim(),
-              if (location.trim().isNotEmpty) 'location': location.trim(),
-            },
-          ),
+      Uri.parse('$baseUrl/care/doctors/search').replace(
+        queryParameters: {'query': query.trim(), 'location': location.trim()},
+      ),
     );
-    if (response.statusCode == 200) {
-      return json.decode(response.body);
-    } else {
-      throw Exception('Failed to search doctors');
-    }
+    return _decodeCareSearchResponse(response, 'Could not search doctors.');
   }
 
   static Future<List<dynamic>> searchHospitals({
-    required String concern,
     required String location,
   }) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/hospitals/search')
-          .replace(
-            queryParameters: {
-              'query': concern.trim(),
-              'location': location.trim(),
-            },
-          ),
+      Uri.parse('$baseUrl/care/hospitals/search')
+          .replace(queryParameters: {'location': location.trim()}),
     );
-    if (response.statusCode == 200) return json.decode(response.body);
-    throw Exception('Failed to search hospitals');
+    return _decodeCareSearchResponse(response, 'Could not search hospitals.');
+  }
+
+  static List<dynamic> _decodeCareSearchResponse(
+    http.Response response,
+    String fallbackMessage,
+  ) {
+    if (response.statusCode == 200) {
+      final result = json.decode(response.body);
+      if (result is List<dynamic>) return result;
+      throw const FormatException('The care search returned invalid results.');
+    }
+
+    var message = fallbackMessage;
+    try {
+      final body = json.decode(response.body);
+      if (body is Map<String, dynamic> && body['detail'] is String) {
+        message = body['detail'] as String;
+      }
+    } on FormatException {
+      // Keep the readable fallback when the server response is not JSON.
+    }
+    throw Exception(message);
   }
 
   static Future<List<dynamic>> getMedicalServices() async {

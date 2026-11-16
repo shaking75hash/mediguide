@@ -73,16 +73,30 @@ secret. The API initializes the required schema and a demo doctor catalogue at
 startup. It does not copy local users, appointments, or health records.
 The diagnostic comparison catalogue also contains explicitly labelled sample
 Rajshahi facilities and example prices; these are for UI demonstration only,
-not verified offers. The home screen's Your care flow matches doctor name,
-specialty, and listed location, or matches hospital name/type and location.
-Hospital records do not include condition-specific services, and the sample
-listings must not be treated as medical recommendations. Mapped Rajshahi hospital
-locations use [OpenStreetMap data](https://www.openstreetmap.org/copyright)
-for [Tuberculosis Hospital Rajshahi](https://www.openstreetmap.org/way/499248787),
+not verified offers.
+
+The Your care flow geocodes the chosen Rajshahi area and searches OpenStreetMap
+for tagged doctors and hospitals within about 8 km. Doctor concerns are mapped
+locally to specialties (for example, heart care to cardiology and fever to
+general practice); the health concern is not sent to OpenStreetMap. Only the
+location text is sent to Nominatim, and nearby listings are retrieved from
+Overpass. Results can be incomplete because OSM provider and specialty tags are
+community-maintained. Untagged nearby doctors may be shown as unverified
+alternatives, and hospital results are area-based: contact providers to confirm
+services. This search is not a diagnosis or emergency service.
+
+The backend caches geocoded areas for 24 hours and nearby listings for 30
+minutes, identifies itself to OSM, and limits requests to both OSM services to
+one per second. The OSM endpoints can be changed through `OSM_NOMINATIM_URL` and
+`OSM_OVERPASS_URL` without changing the app. Follow the
+[Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
+and show [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
+when using the results. Mapped Rajshahi hospital locations use OpenStreetMap
+data for [Tuberculosis Hospital Rajshahi](https://www.openstreetmap.org/way/499248787),
 [Rajshahi Shishu Hospital](https://www.openstreetmap.org/node/5350285191), and
 [Rajshahi Metropalitan Hospital](https://www.openstreetmap.org/node/9590393412).
 Map attribution is shown in the app; verify hospital details and services
-before travelling. Doctor search results are ordered by consultation fee,
+before travelling. The doctor's directory is ordered by consultation fee,
 while diagnostic offers are ordered from lowest to highest.
 
 Push the repository to GitHub, sign in to [Render](https://dashboard.render.com),
