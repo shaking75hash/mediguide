@@ -189,7 +189,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
                     decoration: InputDecoration(
                       labelText: 'Preferred location',
                       hintText: 'For example, Kadirganj or Rajshahi',
-                      helperText: 'Searches OpenStreetMap within about 8 km. Your area is shared, not your health concern.',
+                      helperText: 'Uses map data with a local directory fallback. Your concern is not sent to OpenStreetMap.',
                       prefixIcon: const Icon(Icons.location_on_outlined),
                       filled: true,
                       fillColor: Colors.white,
@@ -255,9 +255,15 @@ class _YourCareScreenState extends State<YourCareScreen> {
         return _messageCard(
           icon: Icons.person_search_outlined,
           title: 'No matching doctors',
-          message: 'No matching doctor listings were found within about 8 km. Try a broader Rajshahi area. OpenStreetMap coverage and specialty details may be incomplete.',
+          message: 'No matching doctor listings were found for this location. Try Rajshahi or another nearby area.',
         );
       }
+      final hasLocalDirectoryResults = _doctors.any(
+        (doctor) => doctor['source'] == 'local_directory',
+      );
+      final hasOpenStreetMapResults = _doctors.any(
+        (doctor) => doctor['source'] == 'openstreetmap',
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -271,23 +277,32 @@ class _YourCareScreenState extends State<YourCareScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Specialties are matched from OpenStreetMap tags, not a medical diagnosis. Confirm a doctor’s specialty before visiting.',
+            'These are directory suggestions, not a medical diagnosis. Confirm the doctor’s specialty and location before visiting.',
             style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
           ),
-          if (_doctors.any((doctor) => doctor['specialty_match'] != true)) ...[
+          if (hasLocalDirectoryResults) ...[
             const SizedBox(height: 8),
             const Text(
-              'No nearby listing explicitly matched that specialty. Doctors with no specialty listed on the map are shown; contact them to confirm.',
+              'MediGuide directory entries may list only the city, so their exact distance from your area is unknown.',
+              style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
+            ),
+          ],
+          if (!_doctors.any((doctor) => doctor['specialty_match'] == true)) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'No nearby map listing explicitly matched that specialty. Map-only doctors shown here may not list a specialty; contact them to confirm.',
               style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
             ),
           ],
           const SizedBox(height: 12),
           ..._doctors.map(_doctorCard),
-          const SizedBox(height: 4),
-          const Text(
-            'Map data © OpenStreetMap contributors.',
-            style: TextStyle(color: _muted, fontSize: 11, height: 1.4),
-          ),
+          if (hasOpenStreetMapResults) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Map data © OpenStreetMap contributors.',
+              style: TextStyle(color: _muted, fontSize: 11, height: 1.4),
+            ),
+          ],
         ],
       );
     }
@@ -303,17 +318,19 @@ class _YourCareScreenState extends State<YourCareScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
+          _hospitals.any((hospital) => hospital['source'] == 'local_directory')
+              ? 'MediGuide directory results may be city-level rather than nearby. Hospital services are not verified; contact the hospital before visiting.'
+              : 'Nearby hospitals are shown regardless of your concern because their services are not verified on the map. Contact the hospital to confirm care before visiting.',
+          style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+        ),
+        const SizedBox(height: 8),
+        Text(
           '${_hospitals.length} hospital${_hospitals.length == 1 ? '' : 's'} found',
           style: const TextStyle(
             color: _ink,
             fontSize: 18,
             fontWeight: FontWeight.w800,
           ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Nearby hospitals are shown regardless of your concern because their services are not verified on the map. Contact the hospital to confirm care before visiting.',
-          style: TextStyle(color: _muted, fontSize: 12, height: 1.4),
         ),
         const SizedBox(height: 12),
         ..._hospitals.map(_hospitalCard),
@@ -381,6 +398,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
     final isSample = hospital['is_sample'] == true;
     final latitude = hospital['latitude'];
     final longitude = hospital['longitude'];
+    final sourceUrl = hospital['source_url']?.toString();
     final canOpenDirections = !isSample && latitude is num && longitude is num;
     return Card(
       color: Colors.white,
@@ -411,9 +429,7 @@ class _YourCareScreenState extends State<YourCareScreen> {
                 icon: const Icon(Icons.directions_rounded, color: _green),
               )
             : null,
-        onTap: hospital['source'] == 'openstreetmap'
-            ? () => _openListing(hospital['source_url']?.toString())
-            : null,
+        onTap: sourceUrl == null ? null : () => _openListing(sourceUrl),
       ),
     );
   }

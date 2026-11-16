@@ -159,7 +159,9 @@ def _geocode_location(location: str) -> tuple[float, float, str]:
         return result
 
 
-def _request_json(url: str, data: bytes | None = None) -> Any:
+def _request_json(
+    url: str, data: bytes | None = None, timeout: int = 10
+) -> Any:
     headers = {
         "Accept": "application/json",
         "User-Agent": _USER_AGENT,
@@ -168,7 +170,7 @@ def _request_json(url: str, data: bytes | None = None) -> Any:
         headers["Content-Type"] = "application/x-www-form-urlencoded"
     request = urllib.request.Request(url, data=data, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=25) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except (
         urllib.error.URLError,
@@ -208,7 +210,7 @@ def _get_nearby_elements(lat: float, lon: float) -> list[dict[str, Any]]:
         )
         data = urllib.parse.urlencode({"data": query}).encode("ascii")
         _last_facility_request = time.monotonic()
-        result = _request_json(endpoint, data)
+        result = _request_json(endpoint, data, timeout=8)
         if not isinstance(result, dict) or not isinstance(
             result.get("elements"), list
         ):

@@ -8,6 +8,7 @@ from .osm_care_search import (
     CareSearchError,
     search_nearby_doctors,
     search_nearby_hospitals,
+    specialty_for_concern,
 )
 from typing import Optional
 import bcrypt
@@ -281,22 +282,161 @@ def search_hospitals(location: str = "", query: str = ""):
 
 @app.get("/care/doctors/search")
 def search_nearby_doctors_endpoint(query: str, location: str):
+    osm_error = None
     try:
-        return search_nearby_doctors(query, location)
+        map_results = search_nearby_doctors(query, location)
+        if map_results:
+            return map_results
     except CareSearchError as error:
+        if error.status_code != 503:
+            raise HTTPException(
+                status_code=error.status_code, detail=str(error)
+            ) from error
+        osm_error = error
+
+    directory_results = _search_directory_doctors(query, location)
+    if directory_results:
+        return directory_results
+    if osm_error is not None:
         raise HTTPException(
-            status_code=error.status_code, detail=str(error)
-        ) from error
+            status_code=osm_error.status_code, detail=str(osm_error)
+        ) from osm_error
+    return []
 
 
 @app.get("/care/hospitals/search")
 def search_nearby_hospitals_endpoint(location: str):
+    osm_error = None
     try:
-        return search_nearby_hospitals(location)
+        map_results = search_nearby_hospitals(location)
+        if map_results:
+            return map_results
     except CareSearchError as error:
+        if error.status_code != 503:
+            raise HTTPException(
+                status_code=error.status_code, detail=str(error)
+            ) from error
+        osm_error = error
+
+    directory_results = _search_directory_hospitals(location)
+    if directory_results:
+        return directory_results
+    if osm_error is not None:
         raise HTTPException(
-            status_code=error.status_code, detail=str(error)
-        ) from error
+            status_code=osm_error.status_code, detail=str(osm_error)
+        ) from osm_error
+    return []
+
+
+def _location_search_terms(location: str) -> list[str]:
+    terms = [location.strip()]
+    normalized_location = location.casefold()
+    if "kadirganj" in normalized_location:
+        terms.append("Rajshahi")
+    return terms
+
+
+def _search_directory_doctors(query: str, location: str) -> list[dict]:
+    _, specialty_terms = specialty_for_concern(query)
+    search_terms = list(dict.fromkeys([query.strip(), *specialty_terms]))
+    search_terms = [term for term in search_terms if term]
+    location_terms = _location_search_terms(location)
+    if not search_terms or not location_terms:
+        return []
+
+    query_conditions = " OR ".join(
+        "(name ILIKE %s OR specialty ILIKE %s)" for _ in search_terms
+    )
+    location_conditions = " OR ".join(
+        "location ILIKE %s" for _ in location_terms
+    )
+    query_parameters = [
+        pattern
+        for term in search_terms
+        for pattern in (f"%{term}%", f"%{term}%")
+    ]
+    location_parameters = [f"%{term}%" for term in location_terms]
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT id, name, specialty, location, consultation_fee, is_verified "
+                "FROM doctors "
+                f"WHERE ({location_conditions}) AND ({query_conditions}) "
+                "ORDER BY consultation_fee ASC, id ASC;",
+                (*location_parameters, *query_parameters),
+            )
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+    finally:
+        conn.close()
+
+    results = []
+    for row in rows:
+        results.append(
+            {
+                "id": row[0],
+                "name": row[1],
+                "specialty": row[2],
+                "location": row[3],
+                "consultation_fee": row[4],
+                "is_verified": row[5],
+                "specialty_match": any(
+                    term.casefold() in str(row[2]).casefold()
+                    for term in specialty_terms
+                ),
+                "source": "local_directory",
+            }
+        )
+    return results
+
+
+def _search_directory_hospitals(location: str) -> list[dict]:
+    location_terms = _location_search_terms(location)
+    if not location_terms:
+        return []
+    location_conditions = " OR ".join(
+        "location ILIKE %s" for _ in location_terms
+    )
+    parameters = ["%hospital%", *(f"%{term}%" for term in location_terms)]
+
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT id, name, category, location, is_sample, "
+                "latitude, longitude, source_url "
+                "FROM diagnostic_facilities "
+                f"WHERE category ILIKE %s AND ({location_conditions}) "
+                "ORDER BY name ASC, id ASC;",
+                parameters,
+            )
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "category": row[2],
+            "location": row[3],
+            "is_sample": row[4],
+            "latitude": row[5],
+            "longitude": row[6],
+            "source_url": row[7],
+            "source": "local_directory",
+        }
+        for row in rows
+    ]
+
+
 
 @app.get("/medical-services")
 def get_medical_services():

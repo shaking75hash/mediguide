@@ -76,18 +76,20 @@ Rajshahi facilities and example prices; these are for UI demonstration only,
 not verified offers.
 
 The Your care flow geocodes the chosen Rajshahi area and searches OpenStreetMap
-for tagged doctors and hospitals within about 8 km. Doctor concerns are mapped
-locally to specialties (for example, heart care to cardiology and fever to
-general practice); the health concern is not sent to OpenStreetMap. Only the
-location text is sent to Nominatim, and nearby listings are retrieved from
-Overpass. Results can be incomplete because OSM provider and specialty tags are
-community-maintained. Untagged nearby doctors may be shown as unverified
-alternatives, and hospital results are area-based: contact providers to confirm
-services. This search is not a diagnosis or emergency service.
+for tagged doctors and hospitals within about 8 km. If map search is unavailable
+or has no match, it falls back to the local MediGuide directory. Doctor concerns
+are mapped locally to specialties (for example, heart care to cardiology and
+fever to general practice); the health concern is not sent to OpenStreetMap.
+Only the location text is sent to Nominatim. OSM results can be incomplete
+because provider and specialty tags are community-maintained. Local doctor
+entries may show only a city-level location; contact providers to verify
+location and services. Hospital results do not confirm a hospital treats the
+entered concern. This search is not a diagnosis or emergency service.
 
 The backend caches geocoded areas for 24 hours and nearby listings for 30
-minutes, identifies itself to OSM, and limits requests to both OSM services to
-one per second. The OSM endpoints can be changed through `OSM_NOMINATIM_URL` and
+minutes, identifies itself to OSM, limits requests to both OSM services to
+one per second, and falls back to the local directory on map-service errors.
+The OSM endpoints can be changed through `OSM_NOMINATIM_URL` and
 `OSM_OVERPASS_URL` without changing the app. Follow the
 [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
 and show [OpenStreetMap attribution](https://www.openstreetmap.org/copyright)
