@@ -36,9 +36,12 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 ## Use the App Outside Your Local Network
 
-The app defaults to `http://127.0.0.1:8000` for local development. To connect
-from another network, the backend needs a public HTTPS URL. For a temporary
-free test URL, keep your computer and backend running, install
+Android defaults to the project's hosted test API at
+`https://mediguide-test-api.onrender.com`; web and desktop default to
+`http://127.0.0.1:8000` for local development. Set `API_BASE_URL` to use another
+backend. To connect a local backend from another network, it needs a public
+HTTPS URL. For a temporary free test URL, keep your computer and backend
+running, install
 [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/downloads/), then
 run in a second terminal:
 

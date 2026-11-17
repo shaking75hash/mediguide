@@ -6,10 +6,17 @@ import 'package:http/http.dart' as http;
 import 'token_storage.dart';
 
 class ApiService {
-  static const String baseUrl = String.fromEnvironment(
+  static const String _configuredBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:8000',
   );
+
+  static String get baseUrl {
+    if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'https://mediguide-test-api.onrender.com';
+    }
+    return 'http://127.0.0.1:8000';
+  }
 
   static Future<http.Response> _sendAuthenticatedJson({
     required String method,
@@ -54,7 +61,7 @@ class ApiService {
 
   static Future<List<dynamic>> searchDoctors(
     String query, {
-    String location = '',
+    String location = 'Rajshahi',
   }) async {
     final response = await http.get(
       Uri.parse('$baseUrl/care/doctors/search').replace(

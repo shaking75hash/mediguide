@@ -63,6 +63,26 @@ class DirectoryFallbackTests(unittest.TestCase):
 
         self.assertEqual(results, directory_results)
 
+    def test_doctor_search_defaults_missing_location_to_rajshahi(self):
+        map_results = [{"name": "Nearby Doctor"}]
+        with patch(
+            "backend.main.search_nearby_doctors", return_value=map_results
+        ) as search:
+            results = search_nearby_doctors_endpoint("cardiologist")
+
+        self.assertEqual(results, map_results)
+        search.assert_called_once_with("cardiologist", "Rajshahi")
+
+    def test_doctor_search_defaults_blank_location_to_rajshahi(self):
+        map_results = [{"name": "Nearby Doctor"}]
+        with patch(
+            "backend.main.search_nearby_doctors", return_value=map_results
+        ) as search:
+            results = search_nearby_doctors_endpoint("cardiologist", "  ")
+
+        self.assertEqual(results, map_results)
+        search.assert_called_once_with("cardiologist", "Rajshahi")
+
 
 if __name__ == "__main__":
     unittest.main()

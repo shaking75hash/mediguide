@@ -281,7 +281,8 @@ def search_hospitals(location: str = "", query: str = ""):
 
 
 @app.get("/care/doctors/search")
-def search_nearby_doctors_endpoint(query: str, location: str):
+def search_nearby_doctors_endpoint(query: str, location: str = "Rajshahi"):
+    location = location.strip() or "Rajshahi"
     osm_error = None
     try:
         map_results = search_nearby_doctors(query, location)
