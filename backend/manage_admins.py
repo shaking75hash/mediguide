@@ -1,6 +1,5 @@
 import getpass
 import os
-import sys
 
 import bcrypt
 import pyotp
@@ -10,7 +9,13 @@ from .security import encrypt_totp
 
 
 def main():
-    email = os.getenv("ADMIN_EMAIL") or input("Administrator email: ").strip().lower()
+    if not os.getenv("DATABASE_URL", "").strip():
+        raise SystemExit(
+            "DATABASE_URL must be set explicitly to the database where the "
+            "administrator should be created."
+        )
+
+    email = (os.getenv("ADMIN_EMAIL") or input("Administrator email: ")).strip().lower()
     password = os.getenv("ADMIN_PASSWORD")
     if password is None:
         password = getpass.getpass("Administrator password: ")

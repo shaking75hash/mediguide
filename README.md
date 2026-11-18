@@ -126,6 +126,48 @@ flutter analyze
 flutter test
 ```
 
+## Role-based setup
+
+Configure the environment variables in `.env.example`. Never use example
+`JWT_SECRET` or `FERNET_KEY` values in production.
+
+Apply migrations from the repository root:
+
+```bash
+python -m backend.migrate
+```
+
+Create the first administrator from the command line. Set `DATABASE_URL` to
+the intended database first; the command refuses to fall back to `DB_HOST` or
+other local database settings. For a hosted account, use the database's
+external connection URL and the matching `FERNET_KEY` from the backend
+service environment. The account-creation route is never exposed through HTTP.
+
+```bash
+export DATABASE_URL="postgresql://..."
+export FERNET_KEY="..."
+python -m backend.manage_admins
+```
+
+The command resets the password and TOTP enrollment for an existing admin
+with the same email. Add its printed TOTP secret to an authenticator app
+immediately, and never share that secret.
+
+Start the email outbox worker with SMTP or Mailpit:
+
+```bash
+python -m backend.email_worker
+```
+
+The role model is:
+
+- `patient`: normal registration, booking, care records and notifications
+- `doctor`: identifier sign-in, own appointments and weekly schedule
+- `admin`: doctor administration, doctor-request review, invites and audit logs
+
+Development rate limiting uses in-memory counters. Set `REDIS_URL` and
+`APP_ENV=production` to use a Redis-backed deployment limiter.
+
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
