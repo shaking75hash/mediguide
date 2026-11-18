@@ -35,6 +35,7 @@ from .security import (
     verify_totp,
 )
 from .migrate import migrate
+from .specialties import normalize_specialty
 
 app = FastAPI()
 
@@ -1264,12 +1265,6 @@ def audit(cur, administrator_id, action, target_type=None, target_id=None, ip_ad
     )
 
 
-APPROVED_SPECIALTIES = {
-    "General Practice", "Cardiology", "Neurology", "Dermatology",
-    "Pediatrics", "Orthopedics", "Gynecology", "Psychiatry",
-}
-
-
 @app.post("/admin/login")
 def admin_login(credentials: AdminLogin, request: Request):
     ip = request.client.host if request.client else "unknown"
@@ -1374,14 +1369,15 @@ def accept_admin_invite(body: AdminInviteAccept, request: Request):
 
 @app.post("/admin/doctors", status_code=201)
 def admin_create_doctor(body: AdminDoctorCreate, request: Request, auth=Depends(require_role("admin"))):
-    if body.specialty not in APPROVED_SPECIALTIES:
+    specialty = normalize_specialty(body.specialty)
+    if specialty is None:
         raise HTTPException(status_code=422, detail="Invalid specialty")
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO doctors (name, specialty, location, consultation_fee, is_verified)
            VALUES (%s, %s, %s, %s, TRUE) RETURNING id;""",
-        (body.name.strip(), body.specialty, body.location.strip(), body.fee),
+        (body.name.strip(), specialty, body.location.strip(), body.fee),
     )
     doctor_id = cur.fetchone()[0]
     audit(cur, auth["id"], "doctor_created", "doctor", doctor_id, request.client.host if request.client else None)
@@ -1474,7 +1470,8 @@ def send_doctor_verification(body: DoctorRequestCode, request: Request):
 
 @app.post("/doctor-requests", status_code=201)
 def submit_doctor_request(body: DoctorRequestCreate, request: Request):
-    if body.specialty not in APPROVED_SPECIALTIES:
+    specialty = normalize_specialty(body.specialty)
+    if specialty is None:
         raise HTTPException(status_code=422, detail="Invalid specialty")
     email = body.email.strip().lower()
     ip = request.client.host if request.client else "unknown"
@@ -1512,7 +1509,7 @@ def submit_doctor_request(body: DoctorRequestCreate, request: Request):
     cur.execute(
         """INSERT INTO doctor_requests (full_name, specialty, qualification, email, status)
            VALUES (%s, %s, %s, %s, 'pending') RETURNING id;""",
-        (body.full_name.strip(), body.specialty, body.qualification.strip(), email),
+        (body.full_name.strip(), specialty, body.qualification.strip(), email),
     )
     request_id = cur.fetchone()[0]
     conn.commit()

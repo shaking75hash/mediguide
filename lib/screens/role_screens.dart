@@ -13,10 +13,20 @@ class RegisterAsDoctorScreen extends StatefulWidget {
 
 class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
   final name = TextEditingController();
-  final specialty = TextEditingController();
   final qualification = TextEditingController();
   final email = TextEditingController();
   final code = TextEditingController();
+  static const specialties = [
+    'General Practice',
+    'Cardiology',
+    'Neurology',
+    'Dermatology',
+    'Pediatrics',
+    'Orthopedics',
+    'Gynecology',
+    'Psychiatry',
+  ];
+  String? selectedSpecialty;
   bool codeSent = false;
   bool loading = false;
   String? error;
@@ -34,10 +44,14 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
   }
 
   Future<void> submit() async {
+    if (selectedSpecialty == null) {
+      setState(() => error = 'Please select a specialty.');
+      return;
+    }
     setState(() { loading = true; error = null; });
     try {
       await ApiService.submitDoctorRequest(
-        name: name.text, specialty: specialty.text,
+        name: name.text, specialty: selectedSpecialty!,
         qualification: qualification.text, email: email.text, code: code.text,
       );
       if (mounted) {
@@ -57,7 +71,6 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
   Widget build(BuildContext context) {
     final fields = [
       TextField(controller: name, decoration: const InputDecoration(labelText: 'Full name')),
-      TextField(controller: specialty, decoration: const InputDecoration(labelText: 'Specialty')),
       TextField(controller: qualification, decoration: const InputDecoration(labelText: 'Qualification')),
       TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
     ];
@@ -66,6 +79,20 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
       body: SafeArea(
         child: ListView(padding: const EdgeInsets.all(24), children: [
           for (final field in fields) ...[field, const SizedBox(height: 12)],
+          DropdownButtonFormField<String>(
+            initialValue: selectedSpecialty,
+            decoration: const InputDecoration(labelText: 'Specialty'),
+            items: specialties
+                .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: loading
+                ? null
+                : (value) => setState(() {
+                    selectedSpecialty = value;
+                    error = null;
+                  }),
+          ),
+          const SizedBox(height: 12),
           ElevatedButton(onPressed: loading ? null : sendCode, child: const Text('Send verification code')),
           if (codeSent) ...[
             const SizedBox(height: 12),
