@@ -5,6 +5,10 @@ bcrypt
 PyJWT
 python-dotenv
 gunicorn==21.2.0
+cryptography
+pyotp
+email-validator
+redis
 scikit-learn==1.3.0
 pandas==2.0.3
 numpy==1.24.3
