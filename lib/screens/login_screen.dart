@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/token_storage.dart';
 import 'app_shell.dart';
 import 'register_screens.dart';
+import 'role_screens.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? initialEmail;
@@ -67,6 +68,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       await TokenStorage.saveToken(token);
+      await TokenStorage.saveActiveRole('patient');
       debugPrint('Login successful.');
 
       if (mounted) {
@@ -105,6 +107,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 40),
 
                 // ✨ Editorial Branding Header
+                const Text(
+                  'Welcome back',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: _kTextSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
                 const Text(
                   'MediGuide',
                   style: TextStyle(
@@ -325,6 +337,26 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                   ),
+                ),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const DoctorLoginScreen())),
+                      child: const Text('Doctor sign in'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const AdminLoginScreen())),
+                      child: const Text('Administrator sign in'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const RegisterAsDoctorScreen())),
+                      child: const Text('Register as a doctor'),
+                    ),
+                  ],
                 ),
               ],
             ),
