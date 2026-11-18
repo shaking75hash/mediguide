@@ -1,4 +1,6 @@
 import getpass
+import os
+import sys
 
 import bcrypt
 import pyotp
@@ -8,9 +10,13 @@ from .security import encrypt_totp
 
 
 def main():
-    email = input("Administrator email: ").strip().lower()
-    password = getpass.getpass("Administrator password: ")
-    confirmation = getpass.getpass("Confirm password: ")
+    email = os.getenv("ADMIN_EMAIL") or input("Administrator email: ").strip().lower()
+    password = os.getenv("ADMIN_PASSWORD")
+    if password is None:
+        password = getpass.getpass("Administrator password: ")
+        confirmation = getpass.getpass("Confirm password: ")
+    else:
+        confirmation = password
     if password != confirmation:
         raise SystemExit("Passwords do not match")
     secret = pyotp.random_base32()
