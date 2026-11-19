@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../services/token_storage.dart';
+import '../widgets/password_text_field.dart';
 
 class RegisterAsDoctorScreen extends StatefulWidget {
   const RegisterAsDoctorScreen({super.key});
@@ -182,19 +183,20 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
               decoration: const InputDecoration(labelText: 'Email'),
             ),
             const SizedBox(height: 12),
-            TextField(
+            PasswordTextField(
               controller: _passwordController,
-              obscureText: true,
               decoration: const InputDecoration(
                 labelText: 'Password',
                 helperText: 'At least 8 characters',
               ),
+              autofillHints: const [AutofillHints.newPassword],
             ),
             const SizedBox(height: 12),
-            TextField(
+            PasswordTextField(
               controller: _confirmPasswordController,
-              obscureText: true,
               decoration: const InputDecoration(labelText: 'Confirm password'),
+              fieldName: 'confirm password',
+              autofillHints: const [AutofillHints.newPassword],
             ),
             if (error != null) ...[
               const SizedBox(height: 12),
@@ -286,10 +288,10 @@ class _DoctorLoginScreenState extends State<DoctorLoginScreen> {
             decoration: const InputDecoration(labelText: 'Email'),
           ),
           const SizedBox(height: 12),
-          TextField(
+          PasswordTextField(
             controller: password,
-            obscureText: true,
             decoration: const InputDecoration(labelText: 'Password'),
+            autofillHints: const [AutofillHints.password],
           ),
           if (error != null)
             Text(error!, style: const TextStyle(color: Colors.red)),

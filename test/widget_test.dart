@@ -5,11 +5,51 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mediguide/main.dart';
+import 'package:mediguide/widgets/password_text_field.dart';
 
 void main() {
+  testWidgets('password fields can be shown and hidden without losing text', (
+    WidgetTester tester,
+  ) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PasswordTextField(
+            controller: controller,
+            decoration: const InputDecoration(labelText: 'Password'),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).obscureText,
+      isTrue,
+    );
+    await tester.enterText(find.byType(TextField), 'secure-password');
+    await tester.tap(find.byTooltip('Show password'));
+    await tester.pump();
+
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).obscureText,
+      isFalse,
+    );
+    expect(controller.text, 'secure-password');
+
+    await tester.tap(find.byTooltip('Hide password'));
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).obscureText,
+      isTrue,
+    );
+  });
+
   testWidgets('MediGuide shows the patient and doctor welcome choices', (
     WidgetTester tester,
   ) async {

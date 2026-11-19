@@ -17,6 +17,7 @@ from backend.main import (
     get_doctor_profile,
     get_doctors,
     get_single_doctor,
+    initialize_database,
     register_doctor,
     seed_demo_doctor_accounts,
     update_doctor_profile,
@@ -28,6 +29,24 @@ class DoctorAuthTests(unittest.TestCase):
         self.request = SimpleNamespace(
             client=SimpleNamespace(host="127.0.0.1")
         )
+
+    def test_demo_accounts_seed_even_when_startup_migrations_are_disabled(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "RUN_MIGRATIONS_ON_START": "false",
+                    "APP_MODE": "demo",
+                },
+            ),
+            patch("backend.main.migrate") as migrate,
+            patch("backend.main.seed_demo_doctor_accounts") as seed_accounts,
+        ):
+            os.environ.pop("ENABLE_DEMO_DOCTOR_ACCOUNTS", None)
+            initialize_database()
+
+        migrate.assert_not_called()
+        seed_accounts.assert_called_once()
 
     def test_registration_creates_unverified_profile_and_doctor_user(self):
         cursor = Mock()
@@ -306,6 +325,29 @@ class DoctorAuthTests(unittest.TestCase):
             )
         )
         self.assertEqual(insert_params[3], 42)
+        connection.commit.assert_called_once()
+
+    def test_demo_seed_uses_the_documented_password_when_unconfigured(self):
+        cursor = Mock()
+        cursor.fetchall.return_value = [(42, "Dr. Example")]
+        cursor.fetchone.side_effect = [None, None]
+        connection = Mock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.dict(os.environ, {"APP_MODE": "demo"}, clear=False),
+            patch("backend.main.get_db_connection", return_value=connection),
+        ):
+            os.environ.pop("DEMO_DOCTOR_PASSWORD", None)
+            seed_demo_doctor_accounts()
+
+        _, insert_params = cursor.execute.call_args_list[3].args
+        self.assertTrue(
+            bcrypt.checkpw(
+                b"MediGuideDemo123!",
+                insert_params[2].encode(),
+            )
+        )
         connection.commit.assert_called_once()
 
     def test_demo_seed_updates_existing_synthetic_account_password(self):

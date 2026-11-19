@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../services/token_storage.dart';
+import '../widgets/password_text_field.dart';
 import 'app_shell.dart';
 import 'login_screen.dart';
 
@@ -244,9 +245,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       const SizedBox(height: 16),
 
                       // Password Field
-                      TextField(
+                      PasswordTextField(
                         controller: _passwordController,
-                        obscureText: true,
                         decoration: InputDecoration(
                           labelText: 'Password',
                           hintText: '••••••••',
@@ -272,6 +272,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                           ),
                         ),
+                        autofillHints: const [AutofillHints.newPassword],
                       ),
 
                       // Error Message

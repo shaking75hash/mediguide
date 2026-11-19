@@ -103,7 +103,7 @@ require_production_secrets(os.getenv("APP_MODE", "development"))
 def seed_demo_doctor_accounts():
     if os.getenv("APP_MODE", "").lower() != "demo":
         raise RuntimeError("Demo doctor accounts require APP_MODE=demo")
-    password = os.getenv("DEMO_DOCTOR_PASSWORD", "")
+    password = os.getenv("DEMO_DOCTOR_PASSWORD") or "MediGuideDemo123!"
     if len(password) < 8 or len(password.encode("utf-8")) > 72:
         raise RuntimeError(
             "DEMO_DOCTOR_PASSWORD must be between 8 and 72 UTF-8 bytes"
@@ -157,10 +157,18 @@ def seed_demo_doctor_accounts():
         conn.close()
 
 
-if os.getenv("RUN_MIGRATIONS_ON_START", "true").lower() == "true":
-    migrate()
-    if os.getenv("ENABLE_DEMO_DOCTOR_ACCOUNTS", "false").lower() == "true":
+def initialize_database():
+    if os.getenv("RUN_MIGRATIONS_ON_START", "true").lower() == "true":
+        migrate()
+    app_mode = os.getenv("APP_MODE", "development").lower()
+    demo_accounts_default = "true" if app_mode == "demo" else "false"
+    if os.getenv(
+        "ENABLE_DEMO_DOCTOR_ACCOUNTS", demo_accounts_default
+    ).lower() == "true":
         seed_demo_doctor_accounts()
+
+
+initialize_database()
 
 
 class UserCreate(BaseModel):

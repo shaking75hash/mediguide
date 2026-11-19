@@ -1,6 +1,6 @@
 name: mediguide
 description: "MediGuide Flutter healthcare app"
-version: 1.2.2+17
+version: 1.2.3+18
 publish_to: 'none'
 
 environment:
