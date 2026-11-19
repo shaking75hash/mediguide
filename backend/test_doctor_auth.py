@@ -48,6 +48,25 @@ class DoctorAuthTests(unittest.TestCase):
         migrate.assert_not_called()
         seed_accounts.assert_called_once()
 
+    def test_render_test_service_seeds_despite_stale_flags(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "RUN_MIGRATIONS_ON_START": "false",
+                    "APP_MODE": "production",
+                    "ENABLE_DEMO_DOCTOR_ACCOUNTS": "false",
+                    "RENDER_SERVICE_NAME": "mediguide-test-api",
+                },
+            ),
+            patch("backend.main.migrate") as migrate,
+            patch("backend.main.seed_demo_doctor_accounts") as seed_accounts,
+        ):
+            initialize_database()
+
+        migrate.assert_not_called()
+        seed_accounts.assert_called_once()
+
     def test_registration_creates_unverified_profile_and_doctor_user(self):
         cursor = Mock()
         cursor.fetchone.side_effect = [None, (42,), (17,)]
@@ -350,6 +369,28 @@ class DoctorAuthTests(unittest.TestCase):
         )
         connection.commit.assert_called_once()
 
+    def test_demo_seed_is_allowed_on_the_named_render_test_service(self):
+        cursor = Mock()
+        cursor.fetchall.return_value = [(42, "Dr. Example")]
+        cursor.fetchone.side_effect = [None, None]
+        connection = Mock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "APP_MODE": "production",
+                    "RENDER_SERVICE_NAME": "mediguide-test-api",
+                    "DEMO_DOCTOR_PASSWORD": "MediGuideDemo123!",
+                },
+            ),
+            patch("backend.main.get_db_connection", return_value=connection),
+        ):
+            seed_demo_doctor_accounts()
+
+        connection.commit.assert_called_once()
+
     def test_demo_seed_updates_existing_synthetic_account_password(self):
         cursor = Mock()
         cursor.fetchall.return_value = [(42, "Dr. Example")]
@@ -378,6 +419,31 @@ class DoctorAuthTests(unittest.TestCase):
             )
         )
         self.assertEqual(update_params[1], 19)
+        connection.commit.assert_called_once()
+
+    def test_demo_seed_adds_generated_login_when_sample_has_another_account(self):
+        cursor = Mock()
+        cursor.fetchall.return_value = [(42, "Dr. Example")]
+        cursor.fetchone.side_effect = [(19, "doctor@real.test"), None]
+        connection = Mock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "APP_MODE": "demo",
+                    "DEMO_DOCTOR_PASSWORD": "MediGuideDemo123!",
+                },
+            ),
+            patch("backend.main.get_db_connection", return_value=connection),
+        ):
+            seed_demo_doctor_accounts()
+
+        insert_query, insert_params = cursor.execute.call_args_list[3].args
+        self.assertIn("INSERT INTO users", insert_query)
+        self.assertEqual(insert_params[:2], ("Dr. Example", "dr-example@example.com"))
+        self.assertEqual(insert_params[3], 42)
         connection.commit.assert_called_once()
 
     def test_demo_seed_refuses_a_non_demo_app_mode(self):

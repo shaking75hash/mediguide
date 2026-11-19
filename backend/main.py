@@ -101,8 +101,8 @@ require_production_secrets(os.getenv("APP_MODE", "development"))
 
 
 def seed_demo_doctor_accounts():
-    if os.getenv("APP_MODE", "").lower() != "demo":
-        raise RuntimeError("Demo doctor accounts require APP_MODE=demo")
+    if not _is_demo_environment():
+        raise RuntimeError("Demo doctor accounts require the demo environment")
     password = os.getenv("DEMO_DOCTOR_PASSWORD") or "MediGuideDemo123!"
     if len(password) < 8 or len(password.encode("utf-8")) > 72:
         raise RuntimeError(
@@ -129,12 +129,11 @@ def seed_demo_doctor_accounts():
                 (doctor_id,),
             )
             account = cur.fetchone()
-            if account is not None:
-                if account[1].lower() == email:
-                    cur.execute(
-                        "UPDATE users SET password_hash = %s WHERE id = %s;",
-                        (password_hash, account[0]),
-                    )
+            if account is not None and account[1].lower() == email:
+                cur.execute(
+                    "UPDATE users SET password_hash = %s WHERE id = %s;",
+                    (password_hash, account[0]),
+                )
                 continue
 
             cur.execute(
@@ -162,10 +161,22 @@ def initialize_database():
         migrate()
     app_mode = os.getenv("APP_MODE", "development").lower()
     demo_accounts_default = "true" if app_mode == "demo" else "false"
-    if os.getenv(
-        "ENABLE_DEMO_DOCTOR_ACCOUNTS", demo_accounts_default
-    ).lower() == "true":
+    enabled = os.getenv("ENABLE_DEMO_DOCTOR_ACCOUNTS", demo_accounts_default)
+    if _is_demo_render_service() or (
+        app_mode == "demo" and enabled.lower() == "true"
+    ):
         seed_demo_doctor_accounts()
+
+
+def _is_demo_render_service() -> bool:
+    return os.getenv("RENDER_SERVICE_NAME") == "mediguide-test-api"
+
+
+def _is_demo_environment() -> bool:
+    return (
+        os.getenv("APP_MODE", "").lower() == "demo"
+        or _is_demo_render_service()
+    )
 
 
 initialize_database()
