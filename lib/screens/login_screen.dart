@@ -4,7 +4,6 @@ import '../services/api_service.dart';
 import '../services/token_storage.dart';
 import 'app_shell.dart';
 import 'register_screens.dart';
-import 'role_screens.dart';
 
 class LoginScreen extends StatefulWidget {
   final String? initialEmail;
@@ -342,19 +341,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   alignment: WrapAlignment.center,
                   children: [
                     TextButton(
-                      onPressed: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const DoctorLoginScreen())),
-                      child: const Text('Doctor sign in'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const AdminLoginScreen())),
-                      child: const Text('Administrator sign in'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const RegisterAsDoctorScreen())),
-                      child: const Text('Register as a doctor'),
+                      onPressed: () =>
+                          Navigator.pushReplacementNamed(context, '/welcome'),
+                      child: const Text('Back to welcome'),
                     ),
                   ],
                 ),

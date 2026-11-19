@@ -1,9 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/api_service.dart';
 import '../services/token_storage.dart';
-import 'login_screen.dart';
 
 class RegisterAsDoctorScreen extends StatefulWidget {
   const RegisterAsDoctorScreen({super.key});
@@ -12,10 +12,13 @@ class RegisterAsDoctorScreen extends StatefulWidget {
 }
 
 class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
-  final name = TextEditingController();
-  final qualification = TextEditingController();
-  final email = TextEditingController();
-  final code = TextEditingController();
+  final _nameController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _qualificationController = TextEditingController();
+  final _feeController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   static const specialties = [
     'General Practice',
     'Cardiology',
@@ -26,42 +29,83 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
     'Gynecology',
     'Psychiatry',
   ];
-  String? selectedSpecialty;
-  bool codeSent = false;
+  String? _selectedSpecialty;
   bool loading = false;
   String? error;
 
-  Future<void> sendCode() async {
-    setState(() { loading = true; error = null; });
-    try {
-      await ApiService.sendDoctorVerificationCode(email.text.trim());
-      setState(() => codeSent = true);
-    } catch (e) {
-      setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _locationController.dispose();
+    _qualificationController.dispose();
+    _feeController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
   }
 
-  Future<void> submit() async {
-    if (selectedSpecialty == null) {
+  Future<void> _createAccount() async {
+    final fee = int.tryParse(_feeController.text.trim());
+    if (_nameController.text.trim().isEmpty ||
+        _locationController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty) {
+      setState(() => error = 'Complete your name, location, and email.');
+      return;
+    }
+    if (_selectedSpecialty == null) {
       setState(() => error = 'Please select a specialty.');
       return;
     }
-    setState(() { loading = true; error = null; });
+    if (fee == null || fee < 0) {
+      setState(() => error = 'Enter a valid consultation fee.');
+      return;
+    }
+    if (_passwordController.text.length < 8) {
+      setState(() => error = 'Password must be at least 8 characters.');
+      return;
+    }
+    if (_passwordController.text != _confirmPasswordController.text) {
+      setState(() => error = 'Passwords do not match.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
-      await ApiService.submitDoctorRequest(
-        name: name.text, specialty: selectedSpecialty!,
-        qualification: qualification.text, email: email.text, code: code.text,
+      final result = await ApiService.registerDoctor(
+        name: _nameController.text.trim(),
+        specialty: _selectedSpecialty!,
+        location: _locationController.text.trim(),
+        qualification: _qualificationController.text.trim(),
+        consultationFee: fee,
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
       );
+      final token = result['access_token'];
+      if (token is! String || token.isEmpty) {
+        throw const FormatException(
+          'Registration response did not include an access token.',
+        );
+      }
+      await TokenStorage.saveToken(token, role: 'doctor');
+      await TokenStorage.saveActiveRole('doctor');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Your request was received')),
+          const SnackBar(content: Text('Doctor profile created.')),
         );
-        Navigator.pop(context);
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(builder: (_) => const DoctorHomeScreen()),
+          (_) => false,
+        );
       }
     } catch (e) {
-      setState(() => error = e.toString());
+      if (mounted) {
+        setState(
+          () => error = e.toString().replaceFirst('Exception: ', '').trim(),
+        );
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -69,40 +113,109 @@ class _RegisterAsDoctorScreenState extends State<RegisterAsDoctorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fields = [
-      TextField(controller: name, decoration: const InputDecoration(labelText: 'Full name')),
-      TextField(controller: qualification, decoration: const InputDecoration(labelText: 'Qualification')),
-      TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
-    ];
     return Scaffold(
-      appBar: AppBar(title: const Text('Register as a doctor')),
+      appBar: AppBar(title: const Text('Create doctor account')),
       body: SafeArea(
-        child: ListView(padding: const EdgeInsets.all(24), children: [
-          for (final field in fields) ...[field, const SizedBox(height: 12)],
-          DropdownButtonFormField<String>(
-            initialValue: selectedSpecialty,
-            decoration: const InputDecoration(labelText: 'Specialty'),
-            items: specialties
-                .map((value) => DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
-            onChanged: loading
-                ? null
-                : (value) => setState(() {
-                    selectedSpecialty = value;
-                    error = null;
-                  }),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(onPressed: loading ? null : sendCode, child: const Text('Send verification code')),
-          if (codeSent) ...[
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            const Text(
+              'Create your professional profile',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your profile will be visible to patients and marked unverified.',
+              style: TextStyle(color: Color(0xFF728078)),
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: _nameController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: code, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Six-digit code')),
+            DropdownButtonFormField<String>(
+              initialValue: _selectedSpecialty,
+              decoration: const InputDecoration(labelText: 'Specialty'),
+              items: specialties
+                  .map(
+                    (value) =>
+                        DropdownMenuItem(value: value, child: Text(value)),
+                  )
+                  .toList(),
+              onChanged: loading
+                  ? null
+                  : (value) => setState(() => _selectedSpecialty = value),
+            ),
             const SizedBox(height: 12),
-            ElevatedButton(onPressed: loading ? null : submit, child: const Text('Submit request')),
+            TextField(
+              controller: _locationController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Location'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _qualificationController,
+              textCapitalization: TextCapitalization.sentences,
+              maxLength: 500,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Qualification (optional)',
+                hintText: 'For example, medical degree or credentials',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _feeController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Consultation fee',
+                prefixText: '৳ ',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password',
+                helperText: 'At least 8 characters',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _confirmPasswordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Confirm password'),
+            ),
+            if (error != null) ...[
+              const SizedBox(height: 12),
+              Text(error!, style: const TextStyle(color: Colors.red)),
+            ],
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: loading ? null : _createAccount,
+              child: loading
+                  ? const SizedBox(
+                      height: 22,
+                      width: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Create doctor profile'),
+            ),
           ],
-          if (error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Colors.red))],
-        ]),
+        ),
       ),
     );
   }
@@ -116,102 +229,319 @@ class DoctorLoginScreen extends StatefulWidget {
 
 class _DoctorLoginScreenState extends State<DoctorLoginScreen> {
   final email = TextEditingController();
-  final identifier = TextEditingController();
-  String? error;
-
-  Future<void> login() async {
-    try {
-      final result = await ApiService.doctorLogin(email.text.trim(), identifier.text.trim());
-      await TokenStorage.saveToken(result['access_token'] as String, role: 'doctor');
-      await TokenStorage.saveActiveRole('doctor');
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DoctorHomeScreen()),
-        );
-      }
-    } catch (e) {
-      setState(() => error = e.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Doctor sign in')),
-    body: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-      TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
-      const SizedBox(height: 12),
-      TextField(controller: identifier, decoration: const InputDecoration(labelText: 'Doctor identifier')),
-      if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
-      const SizedBox(height: 16),
-      ElevatedButton(onPressed: login, child: const Text('Sign in')),
-    ])),
-  );
-}
-
-class AdminLoginScreen extends StatefulWidget {
-  const AdminLoginScreen({super.key});
-  @override
-  State<AdminLoginScreen> createState() => _AdminLoginScreenState();
-}
-
-class _AdminLoginScreenState extends State<AdminLoginScreen> {
-  final email = TextEditingController();
   final password = TextEditingController();
-  final code = TextEditingController();
   String? error;
   bool loading = false;
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
   Future<void> login() async {
     setState(() {
       loading = true;
       error = null;
     });
     try {
-      final result = await ApiService.adminLogin(email.text.trim(), password.text, code.text.trim());
-      await TokenStorage.saveToken(result['access_token'] as String, role: 'admin');
-      await TokenStorage.saveActiveRole('admin');
+      final result = await ApiService.doctorLogin(
+        email.text.trim(),
+        password.text,
+      );
+      await TokenStorage.saveToken(
+        result['access_token'] as String,
+        role: 'doctor',
+      );
+      await TokenStorage.saveActiveRole('doctor');
       if (mounted) {
-        Navigator.pushReplacement(
+        Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const AdminHomeScreen()),
+          MaterialPageRoute(builder: (_) => const DoctorHomeScreen()),
+          (_) => false,
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => error = e.toString().replaceFirst('Exception: ', '').trim());
+        setState(
+          () => error = e.toString().replaceFirst('Exception: ', '').trim(),
+        );
       }
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Administrator sign in')),
-    body: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-      TextField(controller: email, decoration: const InputDecoration(labelText: 'Email')),
-      TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
-      TextField(controller: code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'TOTP code')),
-      if (error != null) Text(error!, style: const TextStyle(color: Colors.red)),
-      const SizedBox(height: 16),
-      ElevatedButton(
-        onPressed: loading ? null : login,
-        child: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Sign in'),
+    appBar: AppBar(title: const Text('Doctor sign in')),
+    body: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          TextField(
+            controller: email,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: password,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'Password'),
+          ),
+          if (error != null)
+            Text(error!, style: const TextStyle(color: Colors.red)),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: loading ? null : login,
+            child: loading
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Sign in'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pushReplacementNamed(context, '/welcome'),
+            child: const Text('Back to welcome'),
+          ),
+        ],
       ),
-      const SizedBox(height: 8),
-      TextButton(
-        onPressed: () => Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+    ),
+  );
+}
+
+class DoctorPersonalProfileScreen extends StatefulWidget {
+  const DoctorPersonalProfileScreen({super.key, this.embedded = false});
+
+  final bool embedded;
+
+  @override
+  State<DoctorPersonalProfileScreen> createState() =>
+      _DoctorPersonalProfileScreenState();
+}
+
+class _DoctorPersonalProfileScreenState
+    extends State<DoctorPersonalProfileScreen> {
+  final _locationController = TextEditingController();
+  final _qualificationController = TextEditingController();
+  Map<String, dynamic>? _profile;
+  String? _error;
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _locationController.dispose();
+    _qualificationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final profile = await ApiService.getDoctorProfile();
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+        _locationController.text = profile['location']?.toString() ?? '';
+        _qualificationController.text =
+            profile['qualification']?.toString() ?? '';
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    final location = _locationController.text.trim();
+    if (location.isEmpty) {
+      setState(() => _error = 'Location is required.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final profile = await ApiService.updateDoctorProfile(
+        location: location,
+        qualification: _qualificationController.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _profile = profile;
+        _locationController.text = profile['location']?.toString() ?? '';
+        _qualificationController.text =
+            profile['qualification']?.toString() ?? '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated successfully.')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: widget.embedded
+        ? null
+        : AppBar(title: const Text('Personal profile')),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _profile == null
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _error ?? 'Could not load your profile.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: _loadProfile,
+                    child: const Text('Try again'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        : ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              const Text(
+                'Your professional details',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Changes are saved to your doctor profile and shown to patients.',
+                style: TextStyle(color: Color(0xFF728078)),
+              ),
+              if (_profile!['is_sample'] == true) ...[
+                const SizedBox(height: 14),
+                Card(
+                  color: const Color(0xFFFFF6DF),
+                  child: const ListTile(
+                    leading: Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFF9A6700),
+                    ),
+                    title: Text('Demo account'),
+                    subtitle: Text(
+                      'Fictional sample profile. Use for app testing only; do not enter real patient information.',
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _profileDetail(
+                        'Name',
+                        _profile!['name']?.toString() ?? '',
+                      ),
+                      _profileDetail(
+                        'Specialty',
+                        _profile!['specialty']?.toString() ?? '',
+                      ),
+                      _profileDetail(
+                        'Email',
+                        _profile!['email']?.toString() ?? '',
+                      ),
+                      _profileDetail(
+                        'Verification',
+                        _profile!['is_verified'] == true
+                            ? 'Verified'
+                            : 'Unverified',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _locationController,
+                textCapitalization: TextCapitalization.words,
+                maxLength: 100,
+                decoration: const InputDecoration(
+                  labelText: 'Location',
+                  prefixIcon: Icon(Icons.location_on_outlined),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _qualificationController,
+                textCapitalization: TextCapitalization.sentences,
+                maxLength: 500,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Qualification',
+                  hintText: 'For example, medical degree or credentials',
+                  prefixIcon: Icon(Icons.school_outlined),
+                  alignLabelWithHint: true,
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!, style: const TextStyle(color: Colors.red)),
+              ],
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: _saving ? null : _saveProfile,
+                child: _saving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save profile changes'),
+              ),
+            ],
+          ),
+  );
+
+  Widget _profileDetail(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 96,
+          child: Text(label, style: const TextStyle(color: Color(0xFF728078))),
         ),
-        child: const Text('Back to login'),
-      ),
-    ])),
+        Expanded(
+          child: Text(
+            value.isEmpty ? 'Not provided' : value,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    ),
   );
 }
 
@@ -222,12 +552,65 @@ class DoctorHomeScreen extends StatefulWidget {
 }
 
 class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
+  static const _destinations = [
+    NavigationDestination(
+      icon: Icon(Icons.calendar_today_outlined),
+      selectedIcon: Icon(Icons.calendar_today_rounded),
+      label: 'Appointments',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.schedule_outlined),
+      selectedIcon: Icon(Icons.schedule_rounded),
+      label: 'Schedule',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.person_outline_rounded),
+      selectedIcon: Icon(Icons.person_rounded),
+      label: 'Profile',
+    ),
+    NavigationDestination(
+      icon: Icon(Icons.logout_rounded),
+      selectedIcon: Icon(Icons.logout_rounded),
+      label: 'Sign out',
+    ),
+  ];
+
   Future<List<dynamic>>? appointments;
+  Timer? _appointmentsRefreshTimer;
+  final _visitedTabs = [true, false, false];
+  int _selectedIndex = 0;
+
   @override
   void initState() {
     super.initState();
     appointments = ApiService.getDoctorAppointments('');
+    _appointmentsRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_selectedIndex == 0) refresh();
+    });
   }
+
+  @override
+  void dispose() {
+    _appointmentsRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _selectTab(int index) {
+    setState(() {
+      _selectedIndex = index;
+      _visitedTabs[index] = true;
+    });
+  }
+
+  Future<void> _signOutToWelcome() async {
+    await TokenStorage.clearAll();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamedAndRemoveUntil('/welcome', (_) => false);
+  }
+
   Future<void> refresh() async {
     setState(() => appointments = ApiService.getDoctorAppointments(''));
   }
@@ -238,12 +621,24 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Reschedule appointment'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: dateController, decoration: const InputDecoration(hintText: 'YYYY-MM-DD')),
-        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: dateController,
+              decoration: const InputDecoration(hintText: 'YYYY-MM-DD'),
+            ),
+          ],
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
@@ -253,14 +648,17 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
       slots = await ApiService.getDoctorFreeSlots(dateController.text.trim());
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
       return;
     }
     if (slots.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No free slots are available on that date')),
+        const SnackBar(
+          content: Text('No free slots are available on that date'),
+        ),
       );
       return;
     }
@@ -274,17 +672,29 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
           content: SizedBox(
             width: double.maxFinite,
             child: Wrap(
-              children: slots.map((slot) => ChoiceChip(
-                label: Text(slot),
-                selected: selectedTime == slot,
-                onSelected: (_) => setDialogState(() => selectedTime = slot),
-              )).toList(),
+              children: slots
+                  .map(
+                    (slot) => ChoiceChip(
+                      label: Text(slot),
+                      selected: selectedTime == slot,
+                      onSelected: (_) =>
+                          setDialogState(() => selectedTime = slot),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(onPressed: selectedTime == null ? null : () => Navigator.pop(dialogContext, true),
-              child: const Text('Reschedule')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: selectedTime == null
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: const Text('Reschedule'),
+            ),
           ],
         ),
       ),
@@ -299,105 +709,152 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
       await refresh();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     }
   }
 
+  Widget _buildAppointments() => FutureBuilder<List<dynamic>>(
+    future: appointments,
+    builder: (_, snapshot) {
+      if (!snapshot.hasData) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.data!.isEmpty) {
+        return const Center(child: Text('No appointments today'));
+      }
+      return RefreshIndicator(
+        onRefresh: refresh,
+        child: ListView(
+          children: snapshot.data!
+              .map(
+                (item) => Card(
+                  margin: const EdgeInsets.all(12),
+                  child: ListTile(
+                    title: Text('${item['patient_name']} - ${item['date']}'),
+                    subtitle: Text(
+                      '${item['time']} - ${item['status']}'
+                      '${item['doctor_advice'] != null ? '\nNotes: ${item['doctor_advice']}' : ''}'
+                      '${item['revisit_notes'] != null ? '\nFollow-up: ${item['revisit_notes']}' : ''}',
+                    ),
+                    trailing: Wrap(
+                      children: [
+                        IconButton(
+                          tooltip: 'Reschedule',
+                          onPressed: () => reschedule(item['id']),
+                          icon: const Icon(Icons.event_repeat_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Cancel',
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('Cancel appointment?'),
+                                content: Text(
+                                  'Cancel ${item['patient_name']}\'s appointment on '
+                                  '${item['date']} at ${item['time']}?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('Keep appointment'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: const Text('Cancel appointment'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (!mounted) return;
+                            if (confirmed == true) {
+                              try {
+                                await ApiService.cancelDoctorAppointment(
+                                  item['id'],
+                                );
+                                await refresh();
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Patient notified of cancellation',
+                                    ),
+                                  ),
+                                );
+                              } catch (error) {
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text(error.toString())),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.cancel_outlined),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      );
+    },
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Doctor home'),
+      title: Text(switch (_selectedIndex) {
+        0 => 'Doctor home',
+        1 => 'Weekly schedule',
+        _ => 'Personal profile',
+      }),
       actions: [
         IconButton(
-          tooltip: 'Sign out',
-          onPressed: () async {
-            final navigator = Navigator.of(context);
-            await TokenStorage.clearAll();
-            if (!mounted) return;
-            navigator.pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (_) => false,
-            );
-          },
+          tooltip: 'Sign out and return to welcome',
+          onPressed: _signOutToWelcome,
           icon: const Icon(Icons.logout),
-        ),
-        IconButton(
-          tooltip: 'Weekly schedule',
-          onPressed: () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const DoctorScheduleScreen())),
-          icon: const Icon(Icons.schedule_outlined),
         ),
       ],
     ),
-    body: FutureBuilder<List<dynamic>>(
-      future: appointments,
-      builder: (_, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        if (snapshot.data!.isEmpty) return const Center(child: Text('No appointments today'));
-        return RefreshIndicator(
-          onRefresh: refresh,
-          child: ListView(children: snapshot.data!.map((item) => Card(
-            margin: const EdgeInsets.all(12),
-            child: ListTile(
-              title: Text('${item['patient_name']} - ${item['date']}'),
-              subtitle: Text(
-                '${item['time']} - ${item['status']}'
-                '${item['doctor_advice'] != null ? '\nNotes: ${item['doctor_advice']}' : ''}'
-                '${item['revisit_notes'] != null ? '\nFollow-up: ${item['revisit_notes']}' : ''}',
-              ),
-              trailing: Wrap(children: [
-                IconButton(
-                  tooltip: 'Reschedule',
-                  onPressed: () => reschedule(item['id']),
-                  icon: const Icon(Icons.event_repeat_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Cancel',
-                  onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Cancel appointment?'),
-                        content: Text(
-                          'Cancel ${item['patient_name']}\'s appointment on '
-                          '${item['date']} at ${item['time']}?',
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep appointment')),
-                          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cancel appointment')),
-                        ],
-                      ),
-                    );
-                    if (!mounted) return;
-                    if (confirmed == true) {
-                      try {
-                        await ApiService.cancelDoctorAppointment(item['id']);
-                        await refresh();
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          const SnackBar(content: Text('Patient notified of cancellation')),
-                        );
-                      } catch (error) {
-                        if (!mounted) return;
-                        messenger.showSnackBar(SnackBar(content: Text(error.toString())));
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.cancel_outlined),
-                ),
-              ]),
-            ),
-          )).toList()),
-        );
+    body: IndexedStack(
+      index: _selectedIndex,
+      children: [
+        _buildAppointments(),
+        _visitedTabs[1]
+            ? const DoctorScheduleScreen(embedded: true)
+            : const SizedBox.shrink(),
+        _visitedTabs[2]
+            ? const DoctorPersonalProfileScreen(embedded: true)
+            : const SizedBox.shrink(),
+      ],
+    ),
+    bottomNavigationBar: NavigationBar(
+      selectedIndex: _selectedIndex,
+      onDestinationSelected: (index) {
+        if (index == _destinations.length - 1) {
+          _signOutToWelcome();
+        } else {
+          _selectTab(index);
+        }
       },
+      destinations: _destinations,
+      height: 68,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
     ),
   );
 }
 
 class DoctorScheduleScreen extends StatefulWidget {
-  const DoctorScheduleScreen({super.key});
+  const DoctorScheduleScreen({super.key, this.embedded = false});
+
+  final bool embedded;
   @override
   State<DoctorScheduleScreen> createState() => _DoctorScheduleScreenState();
 }
@@ -423,12 +880,16 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
       setState(() {
         ranges
           ..clear()
-          ..addAll(rows.map((row) => {
-            'day_of_week': row['day_of_week'],
-            'start_time': row['start_time'],
-            'end_time': row['end_time'],
-            'session_length_minutes': row['session_length_minutes'] ?? 30,
-          }));
+          ..addAll(
+            rows.map(
+              (row) => {
+                'day_of_week': row['day_of_week'],
+                'start_time': row['start_time'],
+                'end_time': row['end_time'],
+                'session_length_minutes': row['session_length_minutes'] ?? 30,
+              },
+            ),
+          );
       });
     });
   }
@@ -438,7 +899,8 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
       'day_of_week': selectedDay,
       'start_time': startController.text.trim(),
       'end_time': endController.text.trim(),
-      'session_length_minutes': int.tryParse(sessionController.text.trim()) ?? 30,
+      'session_length_minutes':
+          int.tryParse(sessionController.text.trim()) ?? 30,
     };
     setState(() => ranges.add(range));
   }
@@ -448,13 +910,13 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
       await ApiService.replaceDoctorSchedule(ranges);
       setState(() => schedule = ApiService.getDoctorSchedule());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Schedule updated')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Schedule updated')));
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     }
   }
@@ -473,281 +935,146 @@ class _DoctorScheduleScreenState extends State<DoctorScheduleScreen> {
       );
       setState(() => daysOff = ApiService.getDoctorDaysOff());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Day off saved')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Day off saved')));
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.toString())),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Weekly schedule')),
-    body: ListView(padding: const EdgeInsets.all(16), children: [
-      DropdownButtonFormField<int>(
-        initialValue: selectedDay,
-        decoration: const InputDecoration(labelText: 'Day'),
-        items: List.generate(7, (index) => DropdownMenuItem(
-          value: index + 1,
-          child: Text('Day ${index + 1}'),
-        )),
-        onChanged: (value) => setState(() => selectedDay = value ?? 1),
-      ),
-      const SizedBox(height: 12),
-      TextField(controller: startController, decoration: const InputDecoration(labelText: 'Start time')),
-      const SizedBox(height: 12),
-      TextField(controller: endController, decoration: const InputDecoration(labelText: 'End time')),
-      const SizedBox(height: 12),
-      TextField(
-        controller: sessionController,
-        keyboardType: TextInputType.number,
-        decoration: const InputDecoration(labelText: 'Session length in minutes (5-60)'),
-      ),
-      const SizedBox(height: 12),
-      FilledButton(onPressed: addRange, child: const Text('Add range')),
-      if (ranges.isNotEmpty) ...[
-        const SizedBox(height: 12),
-        ...ranges.map((range) => ListTile(
-          title: Text('Day ${range['day_of_week']}'),
-          subtitle: Text('${range['start_time']} - ${range['end_time']}'),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () => setState(() => ranges.remove(range)),
-          ),
-        )),
-        const SizedBox(height: 12),
-        FilledButton(onPressed: save, child: const Text('Save schedule')),
-      ],
-      const Divider(height: 32),
-      const Text('Day off', style: TextStyle(fontWeight: FontWeight.bold)),
-      const SizedBox(height: 12),
-      TextField(
-        controller: dayOffDateController,
-        decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: dayOffReasonController,
-        decoration: const InputDecoration(labelText: 'Reason (optional, private)'),
-      ),
-      const SizedBox(height: 12),
-      OutlinedButton(
-        onPressed: () async {
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: const Text('Cancel all appointments?'),
-              content: const Text(
-                'All existing patients on this date will be notified and their appointments cancelled.',
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep appointments')),
-                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cancel all')),
-              ],
+    appBar: widget.embedded
+        ? null
+        : AppBar(title: const Text('Weekly schedule')),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        DropdownButtonFormField<int>(
+          initialValue: selectedDay,
+          decoration: const InputDecoration(labelText: 'Day'),
+          items: List.generate(
+            7,
+            (index) => DropdownMenuItem(
+              value: index + 1,
+              child: Text('Day ${index + 1}'),
             ),
-          );
-          if (confirmed == true) await createDayOff(cancelAll: true);
-        },
-        child: const Text('Cancel all and save day off'),
-      ),
-      const SizedBox(height: 8),
-      FilledButton(
-        onPressed: () => createDayOff(cancelAll: false),
-        child: const Text('Save day off after resolving appointments'),
-      ),
-      const SizedBox(height: 16),
-      if (daysOff != null)
-        FutureBuilder<List<dynamic>>(
-          future: daysOff,
-          builder: (_, snapshot) {
-            if (!snapshot.hasData) return const SizedBox.shrink();
-            return Column(
-              children: snapshot.data!.map((dayOff) => ListTile(
-                leading: const Icon(Icons.event_busy_outlined),
-                title: Text(dayOff['date']),
-                trailing: IconButton(
-                  tooltip: 'Remove day off',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    await ApiService.removeDoctorDayOff(dayOff['date']);
-                    setState(() => daysOff = ApiService.getDoctorDaysOff());
-                  },
-                ),
-              )).toList(),
-            );
-          },
-        ),
-    ]),
-  );
-}
-
-class AdminHomeScreen extends StatefulWidget {
-  const AdminHomeScreen({super.key});
-  @override
-  State<AdminHomeScreen> createState() => _AdminHomeScreenState();
-}
-
-class _AdminHomeScreenState extends State<AdminHomeScreen> {
-  late Future<List<dynamic>> requests;
-  late Future<List<dynamic>> doctors;
-
-  @override
-  void initState() {
-    super.initState();
-    requests = ApiService.getAdminDoctorRequests();
-    doctors = ApiService.getDoctors();
-  }
-
-  Future<void> refresh() async {
-    setState(() {
-      requests = ApiService.getAdminDoctorRequests();
-      doctors = ApiService.getDoctors();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Administration'),
-      actions: [
-        IconButton(
-          tooltip: 'Sign out',
-          onPressed: () async {
-            await TokenStorage.clearAll();
-            if (!context.mounted) return;
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-              (_) => false,
-            );
-          },
-          icon: const Icon(Icons.logout),
-        ),
-      ],
-    ),
-    body: RefreshIndicator(
-      onRefresh: refresh,
-      child: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          const Text('Pending doctor requests',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          FutureBuilder<List<dynamic>>(
-            future: requests,
-            builder: (_, snapshot) {
-              if (snapshot.hasError) {
-                return Text(snapshot.error.toString());
-              }
-              if (!snapshot.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.data!.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No pending doctor requests'),
-                );
-              }
-              return Column(
-                children: snapshot.data!.map((request) => Card(
-                  child: ListTile(
-                    title: Text(request['full_name']),
-                    subtitle: Text(
-                      '${request['specialty']} - ${request['qualification']}',
-                    ),
-                    trailing: Wrap(
-                      children: [
-                        IconButton(
-                          tooltip: 'Approve',
-                          onPressed: () async {
-                            await ApiService.approveDoctorRequest(request['id']);
-                            await refresh();
-                          },
-                          icon: const Icon(Icons.check_circle_outline,
-                              color: Colors.green),
-                        ),
-                        IconButton(
-                          tooltip: 'Reject',
-                          onPressed: () async {
-                            await ApiService.rejectDoctorRequest(request['id']);
-                            await refresh();
-                          },
-                          icon: const Icon(Icons.cancel_outlined,
-                              color: Colors.red),
-                        ),
-                      ],
-                    ),
-                  ),
-                )).toList(),
-              );
-            },
           ),
-          const SizedBox(height: 16),
-          const Text('Doctors',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          onChanged: (value) => setState(() => selectedDay = value ?? 1),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: startController,
+          decoration: const InputDecoration(labelText: 'Start time'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: endController,
+          decoration: const InputDecoration(labelText: 'End time'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: sessionController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Session length in minutes (5-60)',
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: addRange, child: const Text('Add range')),
+        if (ranges.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ...ranges.map(
+            (range) => ListTile(
+              title: Text('Day ${range['day_of_week']}'),
+              subtitle: Text('${range['start_time']} - ${range['end_time']}'),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => setState(() => ranges.remove(range)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: save, child: const Text('Save schedule')),
+        ],
+        const Divider(height: 32),
+        const Text('Day off', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: dayOffDateController,
+          decoration: const InputDecoration(labelText: 'Date (YYYY-MM-DD)'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: dayOffReasonController,
+          decoration: const InputDecoration(
+            labelText: 'Reason (optional, private)',
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('Cancel all appointments?'),
+                content: const Text(
+                  'All existing patients on this date will be notified and their appointments cancelled.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Keep appointments'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Cancel all'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true) await createDayOff(cancelAll: true);
+          },
+          child: const Text('Cancel all and save day off'),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () => createDayOff(cancelAll: false),
+          child: const Text('Save day off after resolving appointments'),
+        ),
+        const SizedBox(height: 16),
+        if (daysOff != null)
           FutureBuilder<List<dynamic>>(
-            future: doctors,
+            future: daysOff,
             builder: (_, snapshot) {
               if (!snapshot.hasData) return const SizedBox.shrink();
               return Column(
-                children: snapshot.data!.map((doctor) => Card(
-                  child: ListTile(
-                    title: Text(doctor['name']),
-                    subtitle: Text(
-                      '${doctor['specialty']} - ${doctor['location']}',
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'Soft delete doctor',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final confirmed = await showDialog<bool>(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('Delete doctor?'),
-                            content: Text(
-                              'Doctor ${doctor['name']} will be removed from patient searches.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text('Cancel'),
-                              ),
-                              FilledButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text('Delete'),
-                              ),
-                            ],
-                          ),
-                        );
-                        if (confirmed == true) {
-                          try {
-                            await ApiService.deleteAdminDoctor(doctor['id']);
-                            await refresh();
-                          } catch (error) {
-                            if (!mounted) return;
-                            messenger.showSnackBar(
-                              SnackBar(content: Text(error.toString())),
+                children: snapshot.data!
+                    .map(
+                      (dayOff) => ListTile(
+                        leading: const Icon(Icons.event_busy_outlined),
+                        title: Text(dayOff['date']),
+                        trailing: IconButton(
+                          tooltip: 'Remove day off',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () async {
+                            await ApiService.removeDoctorDayOff(dayOff['date']);
+                            setState(
+                              () => daysOff = ApiService.getDoctorDaysOff(),
                             );
-                          }
-                        }
-                      },
-                    ),
-                  ),
-                )).toList(),
+                          },
+                        ),
+                      ),
+                    )
+                    .toList(),
               );
             },
           ),
-        ],
-      ),
+      ],
     ),
   );
 }
@@ -777,64 +1104,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     body: FutureBuilder<List<dynamic>>(
       future: notifications,
       builder: (_, snapshot) {
-        if (snapshot.hasError) return Center(child: Text(snapshot.error.toString()));
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        if (snapshot.data!.isEmpty) return const Center(child: Text('No notifications'));
+        if (snapshot.hasError) {
+          return Center(child: Text(snapshot.error.toString()));
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.data!.isEmpty) {
+          return const Center(child: Text('No notifications'));
+        }
         return RefreshIndicator(
           onRefresh: refresh,
           child: ListView(
-            children: snapshot.data!.map((item) => ListTile(
-              leading: Icon(
-                item['read_at'] == null
-                    ? Icons.notifications_active_outlined
-                    : Icons.notifications_none_outlined,
-              ),
-              title: Text(item['message']),
-              onTap: () async {
-                await ApiService.markNotificationRead(item['id']);
-                await refresh();
-              },
-            )).toList(),
+            children: snapshot.data!
+                .map(
+                  (item) => ListTile(
+                    leading: Icon(
+                      item['read_at'] == null
+                          ? Icons.notifications_active_outlined
+                          : Icons.notifications_none_outlined,
+                    ),
+                    title: Text(item['message']),
+                    onTap: () async {
+                      await ApiService.markNotificationRead(item['id']);
+                      await refresh();
+                    },
+                  ),
+                )
+                .toList(),
           ),
         );
       },
     ),
-  );
-}
-
-class InviteAcceptanceScreen extends StatefulWidget {
-  final String inviteToken;
-  const InviteAcceptanceScreen({super.key, required this.inviteToken});
-  @override
-  State<InviteAcceptanceScreen> createState() => _InviteAcceptanceScreenState();
-}
-
-class _InviteAcceptanceScreenState extends State<InviteAcceptanceScreen> {
-  final password = TextEditingController();
-  String? qrUri;
-  Future<void> accept() async {
-    try {
-      final result = await ApiService.acceptAdminInvite(
-        widget.inviteToken,
-        password.text,
-      );
-      setState(() => qrUri = result['otpauth_uri'] as String?);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invite could not be accepted')),
-        );
-      }
-    }
-  }
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Accept administrator invite')),
-    body: Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-      TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'New password')),
-      const SizedBox(height: 12),
-      ElevatedButton(onPressed: accept, child: const Text('Accept invite')),
-      if (qrUri != null) QrImageView(data: qrUri!, size: 220),
-    ])),
   );
 }

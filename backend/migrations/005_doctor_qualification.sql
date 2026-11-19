@@ -1,0 +1,2 @@
+ALTER TABLE doctors
+    ADD COLUMN IF NOT EXISTS qualification TEXT NOT NULL DEFAULT '';

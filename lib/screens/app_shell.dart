@@ -5,6 +5,7 @@ import 'appointments_screen.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
+import '../services/token_storage.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -35,22 +36,41 @@ class _AppShellState extends State<AppShell> {
       selectedIcon: Icon(Icons.person_rounded),
       label: 'Profile',
     ),
+    NavigationDestination(
+      icon: Icon(Icons.logout_rounded),
+      selectedIcon: Icon(Icons.logout_rounded),
+      label: 'Sign out',
+    ),
   ];
 
-  final _navigatorKeys = List.generate(
-    4,
-    (_) => GlobalKey<NavigatorState>(),
-  );
+  final _navigatorKeys = List.generate(4, (_) => GlobalKey<NavigatorState>());
   final _visitedTabs = [true, false, false, false];
   int _selectedIndex = 0;
   SearchMode _searchMode = SearchMode.doctors;
 
   void _selectTab(int index) {
-    if (index < 0 || index >= _destinations.length) return;
+    if (index < 0 || index >= _navigatorKeys.length) return;
     setState(() {
       _selectedIndex = index;
       _visitedTabs[index] = true;
     });
+  }
+
+  Future<void> _signOutToWelcome() async {
+    await TokenStorage.clearAll();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamedAndRemoveUntil('/welcome', (_) => false);
+  }
+
+  void _onDestinationSelected(int index) {
+    if (index == _navigatorKeys.length) {
+      _signOutToWelcome();
+      return;
+    }
+    _selectTab(index);
   }
 
   void _openPriceComparison() {
@@ -101,11 +121,11 @@ class _AppShellState extends State<AppShell> {
       child: Scaffold(
         body: IndexedStack(
           index: _selectedIndex,
-          children: List.generate(_destinations.length, _buildTabNavigator),
+          children: List.generate(_navigatorKeys.length, _buildTabNavigator),
         ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _selectedIndex,
-          onDestinationSelected: _selectTab,
+          onDestinationSelected: _onDestinationSelected,
           destinations: _destinations,
           height: 68,
           backgroundColor: const Color(0xFFFFFFFF),

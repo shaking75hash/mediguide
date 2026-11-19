@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS doctors (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     specialty VARCHAR(100) NOT NULL,
+    qualification TEXT NOT NULL DEFAULT '',
     location VARCHAR(100) NOT NULL,
     consultation_fee INTEGER NOT NULL,
     is_verified BOOLEAN DEFAULT FALSE,
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS appointments (
     doctor_id INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
     appointment_date DATE NOT NULL,
     appointment_time TIME NOT NULL,
+    session_length_minutes INTEGER NOT NULL DEFAULT 30,
     status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (doctor_id, appointment_date, appointment_time)

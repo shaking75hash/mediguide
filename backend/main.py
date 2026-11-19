@@ -1,8 +1,10 @@
+from contextlib import asynccontextmanager
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Depends, Request
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from .database import get_db_connection
 from .osm_care_search import (
     CareSearchError,
@@ -15,10 +17,8 @@ import bcrypt
 import jwt
 import datetime
 import os
-import hashlib
-import secrets
+import re
 import time
-import pyotp
 import psycopg2
 import threading
 
@@ -27,17 +27,66 @@ from .security import (
     GENERIC_DOCTOR_LOGIN,
     create_token,
     decode_token,
-    decrypt_totp,
-    encrypt_totp,
-    new_doctor_id,
-    new_totp_secret,
     require_production_secrets,
-    verify_totp,
 )
 from .migrate import migrate
 from .specialties import normalize_specialty
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
+
+
+def expire_overdue_appointments() -> int:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """UPDATE appointments
+               SET status = 'missed'
+               WHERE status IN ('scheduled', 'rescheduled')
+                 AND appointment_date + appointment_time
+                     + make_interval(mins => session_length_minutes)
+                     <= (CURRENT_TIMESTAMP AT TIME ZONE %s);""",
+            (os.getenv("APPOINTMENT_TIMEZONE", "Asia/Dhaka"),),
+        )
+        expired_count = cur.rowcount
+        conn.commit()
+        return expired_count
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _appointment_expiry_worker(stop_event: threading.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            expire_overdue_appointments()
+        except Exception:
+            logger.exception("Could not expire overdue appointments")
+        if stop_event.wait(60):
+            return
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    stop_event = threading.Event()
+    worker = threading.Thread(
+        target=_appointment_expiry_worker,
+        args=(stop_event,),
+        name="appointment-expiry",
+        daemon=True,
+    )
+    worker.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        worker.join(timeout=5)
+
+
+app = FastAPI(lifespan=lifespan)
 
 # ✅ Allow Flutter Web (Chrome) to talk to this backend
 app.add_middleware(
@@ -49,15 +98,70 @@ app.add_middleware(
 )
 SECRET_KEY = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
 require_production_secrets(os.getenv("APP_MODE", "development"))
+
+
+def seed_demo_doctor_accounts():
+    if os.getenv("APP_MODE", "").lower() != "demo":
+        raise RuntimeError("Demo doctor accounts require APP_MODE=demo")
+    password = os.getenv("DEMO_DOCTOR_PASSWORD", "")
+    if len(password) < 8 or len(password.encode("utf-8")) > 72:
+        raise RuntimeError(
+            "DEMO_DOCTOR_PASSWORD must be between 8 and 72 UTF-8 bytes"
+        )
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, name FROM doctors WHERE is_sample = TRUE ORDER BY id;"
+        )
+        sample_doctors = cur.fetchall()
+        for doctor_id, name in sample_doctors:
+            slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+            email = f"{slug}@example.com"
+            password_hash = bcrypt.hashpw(
+                password.encode("utf-8"), bcrypt.gensalt()
+            ).decode()
+
+            cur.execute(
+                "SELECT id, email FROM users "
+                "WHERE role = 'doctor' AND doctor_id = %s;",
+                (doctor_id,),
+            )
+            account = cur.fetchone()
+            if account is not None:
+                if account[1].lower() == email:
+                    cur.execute(
+                        "UPDATE users SET password_hash = %s WHERE id = %s;",
+                        (password_hash, account[0]),
+                    )
+                continue
+
+            cur.execute(
+                "SELECT id FROM users WHERE lower(email) = %s;",
+                (email,),
+            )
+            if cur.fetchone() is not None:
+                raise RuntimeError(
+                    f"Demo doctor email is already in use: {email}"
+                )
+            cur.execute(
+                """INSERT INTO users
+                   (name, email, password_hash, role, doctor_id, token_version)
+                   VALUES (%s, %s, %s, 'doctor', %s, 1);""",
+                (name, email, password_hash, doctor_id),
+            )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
+
 if os.getenv("RUN_MIGRATIONS_ON_START", "true").lower() == "true":
     migrate()
+    if os.getenv("ENABLE_DEMO_DOCTOR_ACCOUNTS", "false").lower() == "true":
+        seed_demo_doctor_accounts()
 
-
-class DoctorCreate(BaseModel):
-    name: str
-    specialty: str
-    location: str
-    fee: int
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -87,47 +191,24 @@ class AppointmentCareNoteUpdate(BaseModel):
     revisit_notes: Optional[str] = Field(default=None, max_length=1000)
 
 
-class AdminLogin(BaseModel):
-    email: str
-    password: str
-    code: Optional[str] = None
+class DoctorRegistration(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    specialty: str = Field(min_length=1, max_length=100)
+    location: str = Field(min_length=1, max_length=100)
+    qualification: str = Field(default="", max_length=500)
+    consultation_fee: int = Field(ge=0, le=1000000)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
 
 
-class AdminInviteCreate(BaseModel):
-    email: str
-
-
-class AdminInviteAccept(BaseModel):
-    token: str
-    password: str
-
-
-class DoctorRequestCode(BaseModel):
-    email: str
-
-
-class DoctorRequestCreate(BaseModel):
-    full_name: str = Field(max_length=100)
-    specialty: str
-    qualification: str = Field(max_length=500)
-    email: str
-    code: str
-
-
-class DoctorRequestDecision(BaseModel):
-    pass
-
-
-class AdminDoctorCreate(BaseModel):
-    name: str = Field(max_length=100)
-    specialty: str
-    location: str = Field(max_length=100)
-    fee: float = Field(ge=0)
+class DoctorProfileUpdate(BaseModel):
+    location: str = Field(min_length=1, max_length=100)
+    qualification: str = Field(default="", max_length=500)
 
 
 class DoctorLogin(BaseModel):
-    email: str
-    identifier: str
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
 
 
 class Reschedule(BaseModel):
@@ -333,7 +414,8 @@ def get_doctors():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, name, specialty, location, consultation_fee, is_verified "
+        "SELECT id, name, specialty, location, consultation_fee, is_verified, "
+        "qualification, is_sample "
         "FROM doctors WHERE deleted_at IS NULL ORDER BY consultation_fee ASC, id ASC;"
     )
     rows = cur.fetchall()
@@ -344,7 +426,8 @@ def get_doctors():
     for row in rows:
         doctors.append({
             "id": row[0], "name": row[1], "specialty": row[2],
-            "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
+            "location": row[3], "consultation_fee": row[4],
+            "is_verified": row[5], "qualification": row[6], "is_sample": row[7]
         })
     return doctors
 
@@ -356,7 +439,8 @@ def search_doctors(query: str = "", location: str = ""):
     search_term = f"%{query.strip()}%"
     location_term = f"%{location.strip()}%"
     cur.execute(
-        "SELECT id, name, specialty, location, consultation_fee, is_verified "
+        "SELECT id, name, specialty, location, consultation_fee, is_verified, "
+        "qualification, is_sample "
         "FROM doctors "
         "WHERE deleted_at IS NULL "
         "AND (%s = '' OR name ILIKE %s OR specialty ILIKE %s "
@@ -380,7 +464,8 @@ def search_doctors(query: str = "", location: str = ""):
     for row in rows:
         doctors.append({
             "id": row[0], "name": row[1], "specialty": row[2],
-            "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
+            "location": row[3], "consultation_fee": row[4],
+            "is_verified": row[5], "qualification": row[6], "is_sample": row[7]
         })
     return doctors
 
@@ -505,7 +590,8 @@ def _search_directory_doctors(query: str, location: str) -> list[dict]:
         cur = conn.cursor()
         try:
             cur.execute(
-                "SELECT id, name, specialty, location, consultation_fee, is_verified "
+                "SELECT id, name, specialty, location, consultation_fee, "
+                "is_verified, qualification, is_sample "
                 "FROM doctors "
                 f"WHERE deleted_at IS NULL AND ({location_conditions}) AND ({query_conditions}) "
                 "ORDER BY consultation_fee ASC, id ASC;",
@@ -527,6 +613,8 @@ def _search_directory_doctors(query: str, location: str) -> list[dict]:
                 "location": row[3],
                 "consultation_fee": row[4],
                 "is_verified": row[5],
+                "qualification": row[6],
+                "is_sample": row[7],
                 "specialty_match": any(
                     term.casefold() in str(row[2]).casefold()
                     for term in specialty_terms
@@ -643,7 +731,8 @@ def get_single_doctor(doctor_id: int):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, name, specialty, location, consultation_fee, is_verified "
+        "SELECT id, name, specialty, location, consultation_fee, is_verified, "
+        "qualification, is_sample "
         "FROM doctors WHERE id = %s AND deleted_at IS NULL;",
         (doctor_id,),
     )
@@ -656,7 +745,8 @@ def get_single_doctor(doctor_id: int):
 
     return {
         "id": row[0], "name": row[1], "specialty": row[2],
-        "location": row[3], "consultation_fee": row[4], "is_verified": row[5]
+        "location": row[3], "consultation_fee": row[4],
+        "is_verified": row[5], "qualification": row[6], "is_sample": row[7]
     }
 
 @app.get("/doctors/{doctor_id}/trust")
@@ -993,7 +1083,7 @@ def book_appointment(
         raise HTTPException(status_code=409, detail="The doctor is unavailable on this date")
 
     try:
-        validate_slot(cur, doctor_id, 0, target_date, target_time)
+        session_minutes = validate_slot(cur, doctor_id, 0, target_date, target_time)
     except HTTPException:
         cur.close()
         conn.close()
@@ -1010,9 +1100,10 @@ def book_appointment(
         raise HTTPException(status_code=409, detail="This slot is already booked")
 
     cur.execute(
-        """INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time)
-           VALUES (%s, %s, %s, %s) RETURNING id;""",
-        (patient_id, doctor_id, target_date, target_time),
+        """INSERT INTO appointments
+           (patient_id, doctor_id, appointment_date, appointment_time, session_length_minutes)
+           VALUES (%s, %s, %s, %s, %s) RETURNING id;""",
+        (patient_id, doctor_id, target_date, target_time, session_minutes),
     )
     new_id = cur.fetchone()[0]
     conn.commit()
@@ -1024,6 +1115,7 @@ def book_appointment(
 # My appointments (PROTECTED)
 @app.get("/appointments/mine")
 def my_appointments(patient_id: int = Depends(get_current_user)):
+    expire_overdue_appointments()
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -1049,11 +1141,14 @@ def cancel_appointment(
     appointment_id: int,
     current_user_id: int = Depends(get_current_user),
 ):
+    expire_overdue_appointments()
     conn = get_db_connection()
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT id FROM appointments WHERE id = %s AND patient_id = %s;",
+        """SELECT id FROM appointments
+           WHERE id = %s AND patient_id = %s
+             AND status IN ('scheduled', 'rescheduled');""",
         (appointment_id, current_user_id),
     )
     if cur.fetchone() is None:
@@ -1211,11 +1306,6 @@ def get_health_records(current_user_id: int = Depends(get_current_user)):
     return records
 
 
-ADMIN_ACTION_LIMITS = {
-    "failures": {},
-}
-DOCTOR_LOGIN_FAILURES = {}
-
 RATE_LIMITS = {}
 RATE_LOCK = threading.Lock()
 
@@ -1256,438 +1346,189 @@ def clear_rate_limit(scope: str, identity: str) -> None:
         RATE_LIMITS.pop(key, None)
 
 
-def audit(cur, administrator_id, action, target_type=None, target_id=None, ip_address=None):
-    cur.execute(
-        """INSERT INTO admin_audit_log
-           (administrator_id, action, target_type, target_id, ip_address)
-           VALUES (%s, %s, %s, %s, %s);""",
-        (administrator_id, action, target_type, str(target_id) if target_id is not None else None, ip_address),
-    )
-
-
-@app.post("/admin/login")
-def admin_login(credentials: AdminLogin, request: Request):
+@app.post("/doctors/register", status_code=201)
+def register_doctor(body: DoctorRegistration, request: Request):
+    email = str(body.email).strip().lower()
     ip = request.client.host if request.client else "unknown"
-    identity = f"{credentials.email.strip().lower()}|{ip}"
-    if is_rate_limited("admin_login", identity):
+    if is_rate_limited("doctor_register", ip):
         raise HTTPException(status_code=429, detail="Too many attempts")
+
+    specialty = normalize_specialty(body.specialty)
+    if specialty is None:
+        raise HTTPException(status_code=422, detail="Invalid specialty")
+    name = body.name.strip()
+    location = body.location.strip()
+    if not name or not location:
+        raise HTTPException(status_code=422, detail="Name and location are required")
+    if len(body.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=422,
+            detail="Password must be 72 UTF-8 bytes or fewer",
+        )
+
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT id, password_hash, role, token_version, totp_secret_encrypted, totp_enabled, disabled "
-        "FROM users WHERE email = %s;",
-        (credentials.email.strip().lower(),),
-    )
-    row = cur.fetchone()
-    valid_password = False
-    valid_totp = False
-    if row and not row[6] and row[2] == "admin":
-        valid_password = bcrypt.checkpw(credentials.password.encode(), row[1].encode())
-        if valid_password and row[4] and row[5]:
-            try:
-                valid_totp = verify_totp(decrypt_totp(row[4]), credentials.code or "")
-            except Exception:
-                valid_totp = False
-    if not valid_password or not valid_totp:
-        audit(cur, row[0] if row else None, "admin_login_failed", "user", row[0] if row else None, request.client.host if request.client else None)
+    try:
+        cur.execute("SELECT id FROM users WHERE lower(email) = %s;", (email,))
+        if cur.fetchone() is not None:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        cur.execute(
+            """INSERT INTO doctors
+               (name, specialty, location, consultation_fee, qualification, is_verified)
+               VALUES (%s, %s, %s, %s, %s, FALSE) RETURNING id;""",
+            (
+                name,
+                specialty,
+                location,
+                body.consultation_fee,
+                body.qualification.strip(),
+            ),
+        )
+        doctor_id = cur.fetchone()[0]
+        password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+        cur.execute(
+            """INSERT INTO users (name, email, password_hash, role, doctor_id, token_version)
+               VALUES (%s, %s, %s, 'doctor', %s, 1) RETURNING id;""",
+            (name, email, password_hash, doctor_id),
+        )
+        user_id = cur.fetchone()[0]
         conn.commit()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=401, detail=GENERIC_LOGIN)
-
-    cur.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = %s;", (row[0],))
-    audit(cur, row[0], "admin_login_success", "user", row[0], request.client.host if request.client else None)
-    conn.commit()
-    clear_rate_limit("admin_login", identity)
-    token = create_token(row[0], "admin", row[3], int(os.getenv("ADMIN_TOKEN_MINUTES", "10")))
-    cur.close()
-    conn.close()
-    return {"access_token": token, "token_type": "bearer", "role": "admin"}
-
-
-@app.post("/admin/invites", status_code=201)
-def create_admin_invite(body: AdminInviteCreate, request: Request, auth=Depends(require_role("admin"))):
-    token = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO admin_invites (token_hash, email, created_by, expires_at)
-           VALUES (%s, %s, %s, CURRENT_TIMESTAMP + INTERVAL '24 hours') RETURNING id;""",
-        (token_hash, body.email.strip().lower(), auth["id"]),
-    )
-    invite_id = cur.fetchone()[0]
-    audit(cur, auth["id"], "admin_invite_created", "admin_invite", invite_id, request.client.host if request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"invite_id": invite_id, "token": token, "expires_in": "24 hours"}
-
-
-@app.post("/admin/invites/accept")
-def accept_admin_invite(body: AdminInviteAccept, request: Request):
-    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT id, email, expires_at, used_at FROM admin_invites
-           WHERE token_hash = %s;""",
-        (token_hash,),
-    )
-    invite = cur.fetchone()
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if invite is None or invite[3] is not None or invite[2] <= now:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=401, detail="Invite is invalid or expired")
-
-    cur.execute("SELECT id FROM users WHERE email = %s;", (invite[1],))
-    if cur.fetchone():
-        cur.close()
-        conn.close()
+    except psycopg2.IntegrityError:
+        conn.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
-
-    secret = new_totp_secret()
-    encrypted = encrypt_totp(secret)
-    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
-    cur.execute(
-        """INSERT INTO users (name, email, password_hash, role, token_version,
-                              totp_secret_encrypted, totp_enabled)
-           VALUES (%s, %s, %s, 'admin', 1, %s, TRUE)
-           RETURNING id;""",
-        ("Administrator", invite[1], password_hash, encrypted),
-    )
-    user_id = cur.fetchone()[0]
-    audit(cur, user_id, "admin_invite_accepted", "admin_invite", invite[0], request.client.host if request.client else None)
-    cur.execute("DELETE FROM admin_invites WHERE id = %s;", (invite[0],))
-    conn.commit()
-    otpauth = pyotp.TOTP(secret).provisioning_uri(name=invite[1], issuer_name="MediGuide")
-    cur.close()
-    conn.close()
-    return {"message": "Administrator account created", "totp_secret": secret, "otpauth_uri": otpauth}
-
-
-@app.post("/admin/doctors", status_code=201)
-def admin_create_doctor(body: AdminDoctorCreate, request: Request, auth=Depends(require_role("admin"))):
-    specialty = normalize_specialty(body.specialty)
-    if specialty is None:
-        raise HTTPException(status_code=422, detail="Invalid specialty")
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO doctors (name, specialty, location, consultation_fee, is_verified)
-           VALUES (%s, %s, %s, %s, TRUE) RETURNING id;""",
-        (body.name.strip(), specialty, body.location.strip(), body.fee),
-    )
-    doctor_id = cur.fetchone()[0]
-    audit(cur, auth["id"], "doctor_created", "doctor", doctor_id, request.client.host if request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"id": doctor_id}
-
-
-@app.delete("/admin/doctors/{doctor_id}")
-def admin_delete_doctor(doctor_id: int, request: Request, auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM doctors WHERE id = %s AND deleted_at IS NULL;", (doctor_id,))
-    if cur.fetchone() is None:
+    finally:
         cur.close()
         conn.close()
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    cur.execute(
-        """SELECT id, appointment_date, appointment_time FROM appointments
-           WHERE doctor_id = %s AND status IN ('scheduled', 'rescheduled')
-           AND (appointment_date > CURRENT_DATE OR (appointment_date = CURRENT_DATE AND appointment_time > CURRENT_TIME));""",
-        (doctor_id,),
-    )
-    future = cur.fetchall()
-    if future:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=409, detail={
-            "message": "Doctor has future appointments",
-            "appointments": [{"id": r[0], "date": str(r[1]), "time": str(r[2])[:5]} for r in future],
-        })
-    cur.execute("UPDATE doctors SET deleted_at = CURRENT_TIMESTAMP WHERE id = %s;", (doctor_id,))
-    cur.execute(
-        "UPDATE users SET disabled = TRUE, token_version = token_version + 1 "
-        "WHERE role = 'doctor' AND doctor_id = %s;",
-        (doctor_id,),
-    )
-    cur.execute(
-        "UPDATE doctor_credentials SET revoked_at = CURRENT_TIMESTAMP "
-        "WHERE revoked_at IS NULL AND request_id IN "
-        "(SELECT approved_request_id FROM doctors WHERE id = %s);",
-        (doctor_id,),
-    )
-    audit(cur, auth["id"], "doctor_deleted", "doctor", doctor_id, request.client.host if request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Doctor deleted"}
 
-
-@app.post("/admin/users/{user_id}/revoke")
-def revoke_user(user_id: int, request: Request, auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE users SET disabled = TRUE, token_version = token_version + 1 WHERE id = %s;",
-        (user_id,),
-    )
-    audit(cur, auth["id"], "account_revoked", "user", user_id, request.client.host if request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Account revoked"}
-@app.post("/doctor-requests/email-code", status_code=201)
-def send_doctor_verification(body: DoctorRequestCode, request: Request):
-    email = body.email.strip().lower()
-    ip = request.client.host if request.client else "unknown"
-    if is_rate_limited("email_code", f"{email}|{ip}"):
-        raise HTTPException(status_code=429, detail="Too many attempts")
-    code = f"{secrets.randbelow(1000000):06d}"
-    code_hash = hashlib.sha256(code.encode()).hexdigest()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """INSERT INTO email_verifications (email, code_hash, expires_at)
-           VALUES (%s, %s, CURRENT_TIMESTAMP + INTERVAL '10 minutes');""",
-        (email, code_hash),
-    )
-    cur.execute(
-        """INSERT INTO email_outbox (recipient, subject, body)
-           VALUES (%s, 'MediGuide verification code', %s);""",
-        (email, f"Your MediGuide verification code is {code}. It expires in 10 minutes."),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Verification code sent"}
-
-
-@app.post("/doctor-requests", status_code=201)
-def submit_doctor_request(body: DoctorRequestCreate, request: Request):
-    specialty = normalize_specialty(body.specialty)
-    if specialty is None:
-        raise HTTPException(status_code=422, detail="Invalid specialty")
-    email = body.email.strip().lower()
-    ip = request.client.host if request.client else "unknown"
-    if is_rate_limited("doctor_request", f"{email}|{ip}"):
-        raise HTTPException(status_code=429, detail="Too many attempts")
-    code_hash = hashlib.sha256(body.code.strip().encode()).hexdigest()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT id, code_hash, expires_at, attempt_count, used_at
-           FROM email_verifications WHERE email = %s
-           ORDER BY id DESC LIMIT 1 FOR UPDATE;""",
-        (email,),
-    )
-    verification = cur.fetchone()
-    if verification is None:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Email is not verified")
-    if verification[3] >= 5:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=429, detail="Too many attempts")
-    cur.execute(
-        "UPDATE email_verifications SET attempt_count = attempt_count + 1 WHERE id = %s;",
-        (verification[0],),
-    )
-    if (verification[4] is not None or verification[2] <= datetime.datetime.now(datetime.timezone.utc)
-            or verification[1] != code_hash):
-        conn.commit()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail="Email is not verified")
-    cur.execute("UPDATE email_verifications SET used_at = CURRENT_TIMESTAMP WHERE id = %s;", (verification[0],))
-    cur.execute(
-        """INSERT INTO doctor_requests (full_name, specialty, qualification, email, status)
-           VALUES (%s, %s, %s, %s, 'pending') RETURNING id;""",
-        (body.full_name.strip(), specialty, body.qualification.strip(), email),
-    )
-    request_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Your request was received", "request_id": request_id}
-
-
-@app.get("/admin/doctor-requests")
-def list_doctor_requests(status: str = "pending", auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT id, full_name, specialty, qualification, email, status, created_at
-           FROM doctor_requests WHERE status = %s ORDER BY created_at DESC;""",
-        (status,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [{"id": r[0], "full_name": r[1], "specialty": r[2], "qualification": r[3],
-             "email": r[4], "status": r[5], "created_at": r[6]} for r in rows]
-
-
-def issue_doctor_credential(cur, request_id: int, email: str):
-    identifier = new_doctor_id()
-    identifier_hash = bcrypt.hashpw(identifier.encode(), bcrypt.gensalt()).decode()
-    days = int(os.getenv("DOCTOR_ID_DAYS", "30"))
-    cur.execute(
-        """UPDATE doctor_credentials SET revoked_at = CURRENT_TIMESTAMP
-           WHERE request_id = %s AND revoked_at IS NULL;""",
-        (request_id,),
-    )
-    cur.execute(
-        """INSERT INTO doctor_credentials (request_id, email, identifier_hash, expires_at)
-           VALUES (%s, %s, %s, CURRENT_TIMESTAMP + (%s * INTERVAL '1 day')) RETURNING id;""",
-        (request_id, email, identifier_hash, days),
-    )
-    credential_id = cur.fetchone()[0]
-    return identifier, credential_id
-
-
-@app.post("/admin/doctor-requests/{request_id}/approve")
-def approve_doctor_request(request_id: int, http_request: Request, auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, full_name, specialty, email, status FROM doctor_requests WHERE id = %s FOR UPDATE;", (request_id,))
-    doctor_request = cur.fetchone()
-    if doctor_request is None:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Doctor request not found")
-    if doctor_request[4] != "pending":
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=409, detail="Doctor request has already been reviewed")
-
-    cur.execute(
-        """INSERT INTO doctors (name, specialty, consultation_fee, is_verified, approved_request_id)
-           VALUES (%s, %s, 0, TRUE, %s) RETURNING id;""",
-        (doctor_request[1], doctor_request[2], request_id),
-    )
-    doctor_id = cur.fetchone()[0]
-    password_hash = bcrypt.hashpw(secrets.token_urlsafe(24).encode(), bcrypt.gensalt()).decode()
-    cur.execute(
-        """INSERT INTO users (name, email, password_hash, role, doctor_id, token_version)
-           VALUES (%s, %s, %s, 'doctor', %s, 1) RETURNING id;""",
-        (doctor_request[1], doctor_request[3], password_hash, doctor_id),
-    )
-    user_id = cur.fetchone()[0]
-    identifier, credential_id = issue_doctor_credential(cur, request_id, doctor_request[3])
-    cur.execute(
-        "UPDATE doctor_requests SET status = 'approved', reviewer_id = %s, reviewed_at = CURRENT_TIMESTAMP WHERE id = %s;",
-        (auth["id"], request_id),
-    )
-    cur.execute(
-        """INSERT INTO email_outbox (recipient, subject, body)
-           VALUES (%s, 'MediGuide doctor identifier', %s);""",
-        (doctor_request[3], f"Your MediGuide doctor identifier is {identifier}. Keep it private."),
-    )
-    audit(cur, auth["id"], "doctor_request_approved", "doctor_request", request_id, http_request.client.host if http_request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Doctor request approved", "doctor_id": doctor_id, "identifier": identifier}
-
-
-@app.post("/admin/doctor-requests/{request_id}/reject")
-def reject_doctor_request(request_id: int, http_request: Request, auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE doctor_requests SET status = 'rejected', reviewer_id = %s, reviewed_at = CURRENT_TIMESTAMP WHERE id = %s AND status = 'pending' RETURNING id;", (auth["id"], request_id))
-    row = cur.fetchone()
-    if row is None:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=409, detail="Doctor request could not be rejected")
-    audit(cur, auth["id"], "doctor_request_rejected", "doctor_request", request_id, http_request.client.host if http_request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Request rejected"}
-
-
-@app.post("/admin/doctors/{request_id}/reissue-id")
-def reissue_doctor_id(request_id: int, http_request: Request, auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT email FROM doctor_requests WHERE id = %s AND status = 'approved';", (request_id,))
-    row = cur.fetchone()
-    if row is None:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Approved doctor request not found")
-    identifier, credential_id = issue_doctor_credential(cur, request_id, row[0])
-    cur.execute(
-        """INSERT INTO email_outbox (recipient, subject, body)
-           VALUES (%s, 'MediGuide doctor identifier', %s);""",
-        (row[0], f"Your replacement MediGuide doctor identifier is {identifier}. Keep it private."),
-    )
-    audit(cur, auth["id"], "doctor_identifier_reissued", "doctor_request", request_id, http_request.client.host if http_request.client else None)
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"message": "Identifier reissued", "identifier": identifier}
+    clear_rate_limit("doctor_register", ip)
+    return {
+        "access_token": create_token(user_id, "doctor", 1, 30),
+        "token_type": "bearer",
+        "role": "doctor",
+        "doctor_id": doctor_id,
+    }
 
 
 @app.post("/doctor/login")
 def doctor_login(body: DoctorLogin, request: Request):
-    email = body.email.strip().lower()
+    email = str(body.email).strip().lower()
+    if len(body.password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=401, detail=GENERIC_DOCTOR_LOGIN)
     ip = request.client.host if request.client else "unknown"
-    if is_rate_limited("doctor_login", f"{email}|{ip}"):
-        raise HTTPException(status_code=429, detail="Too many attempts")
-    now = time.time()
-    failures = [timestamp for timestamp in DOCTOR_LOGIN_FAILURES.get(email, []) if now - timestamp < int(os.getenv("RATE_LIMIT_WINDOW_MIN", "15")) * 60]
-    if len(failures) >= int(os.getenv("RATE_LIMIT_FAILURES", "5")):
-        DOCTOR_LOGIN_FAILURES[email] = failures
+    identity = f"{email}|{ip}"
+    if is_rate_limited("doctor_login", identity):
         raise HTTPException(status_code=429, detail="Too many attempts")
 
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        """SELECT c.identifier_hash, c.expires_at, c.revoked_at, c.used_at, c.request_id,
-                  u.id, u.role, u.token_version, u.disabled, u.doctor_id
-           FROM doctor_credentials c
-           JOIN doctor_requests r ON r.id = c.request_id
-           JOIN users u ON u.email = r.email
-           WHERE c.email = %s ORDER BY c.id DESC LIMIT 1;""",
+        """SELECT u.id, u.password_hash, u.token_version, u.disabled
+           FROM users u
+           JOIN doctors d ON d.id = u.doctor_id AND d.deleted_at IS NULL
+           WHERE lower(u.email) = %s AND u.role = 'doctor';""",
         (email,),
     )
     row = cur.fetchone()
-    valid = False
-    if row and not row[8]:
-        valid = (
-            row[1] > datetime.datetime.now(datetime.timezone.utc)
-            and row[2] is None
-            and row[6] == "doctor"
-            and bcrypt.checkpw(body.identifier.encode(), row[0].encode())
-        )
+    valid = row is not None and not row[3] and bcrypt.checkpw(
+        body.password.encode(), row[1].encode()
+    )
     if not valid:
-        failures.append(now)
-        DOCTOR_LOGIN_FAILURES[email] = failures
         cur.close()
         conn.close()
         raise HTTPException(status_code=401, detail=GENERIC_DOCTOR_LOGIN)
-    cur.execute("UPDATE doctor_credentials SET used_at = CURRENT_TIMESTAMP WHERE request_id = %s AND revoked_at IS NULL;", (row[4],))
-    cur.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = %s;", (row[5],))
+
+    cur.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = %s;", (row[0],))
     conn.commit()
-    token = create_token(row[5], "doctor", row[7], 30)
     cur.close()
     conn.close()
-    DOCTOR_LOGIN_FAILURES.pop(email, None)
-    clear_rate_limit("doctor_login", f"{email}|{ip}")
-    return {"access_token": token, "token_type": "bearer", "role": "doctor"}
+    clear_rate_limit("doctor_login", identity)
+    return {
+        "access_token": create_token(row[0], "doctor", row[2], 30),
+        "token_type": "bearer",
+        "role": "doctor",
+    }
+
+
+@app.get("/doctor/profile")
+def get_doctor_profile(auth=Depends(require_role("doctor"))):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT d.id, d.name, d.specialty, d.location, d.consultation_fee,
+                  d.is_verified, d.qualification, d.is_sample, u.email
+           FROM doctors d
+           JOIN users u ON u.doctor_id = d.id
+           WHERE d.id = %s AND u.id = %s AND d.deleted_at IS NULL;""",
+        (auth["doctor_id"], auth["id"]),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    return {
+        "id": row[0],
+        "name": row[1],
+        "specialty": row[2],
+        "location": row[3],
+        "consultation_fee": row[4],
+        "is_verified": row[5],
+        "qualification": row[6],
+        "is_sample": row[7],
+        "email": row[8],
+    }
+
+
+@app.put("/doctor/profile")
+def update_doctor_profile(
+    body: DoctorProfileUpdate,
+    auth=Depends(require_role("doctor")),
+):
+    location = body.location.strip()
+    qualification = body.qualification.strip()
+    if not location:
+        raise HTTPException(status_code=422, detail="Location is required")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE doctors AS d
+           SET location = %s, qualification = %s
+           FROM users AS u
+           WHERE d.id = %s AND u.id = %s AND u.doctor_id = d.id
+             AND d.deleted_at IS NULL
+           RETURNING d.id, d.name, d.specialty, d.location,
+                     d.consultation_fee, d.is_verified, d.qualification,
+                     d.is_sample, u.email;""",
+        (location, qualification, auth["doctor_id"], auth["id"]),
+    )
+    row = cur.fetchone()
+    if row is None:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Doctor profile not found")
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {
+        "id": row[0],
+        "name": row[1],
+        "specialty": row[2],
+        "location": row[3],
+        "consultation_fee": row[4],
+        "is_verified": row[5],
+        "qualification": row[6],
+        "is_sample": row[7],
+        "email": row[8],
+    }
 
 
 @app.get("/doctor/appointments")
 def doctor_appointments(date: str = "", auth=Depends(require_role("doctor"))):
+    expire_overdue_appointments()
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -1707,7 +1548,8 @@ def doctor_appointments(date: str = "", auth=Depends(require_role("doctor"))):
                   a.revisit_date, a.revisit_notes
            FROM appointments a
            JOIN users u ON u.id = a.patient_id
-           WHERE a.doctor_id = %s""" + date_filter + """
+           WHERE a.doctor_id = %s
+             AND a.status IN ('scheduled', 'rescheduled')""" + date_filter + """
            ORDER BY a.appointment_date, a.appointment_time;""",
         params,
     )
@@ -1744,17 +1586,19 @@ def validate_slot(cur, doctor_id: int, appointment_id: int, target_date, target_
         "WHERE doctor_id = %s AND day_of_week = %s;",
         (doctor_id, target_date.isoweekday()),
     )
-    fits = False
+    matched_session_minutes = None
     for start, end, session_minutes in cur.fetchall():
         range_start = datetime.datetime.combine(target_date, start)
         range_end = datetime.datetime.combine(target_date, end)
         candidate = range_start
         while candidate + datetime.timedelta(minutes=session_minutes) <= range_end:
             if candidate.time() == target_time:
-                fits = True
+                matched_session_minutes = session_minutes
                 break
             candidate += datetime.timedelta(minutes=session_minutes)
-    if not fits:
+        if matched_session_minutes is not None:
+            break
+    if matched_session_minutes is None:
         raise HTTPException(status_code=422, detail="Target slot is outside the schedule")
     cur.execute(
         "SELECT id FROM appointments WHERE doctor_id = %s AND appointment_date = %s "
@@ -1764,6 +1608,7 @@ def validate_slot(cur, doctor_id: int, appointment_id: int, target_date, target_
     )
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="This slot is already booked")
+    return matched_session_minutes
 
 
 def validate_slot_against_ranges(
@@ -2182,13 +2027,23 @@ def create_doctor_day_off(
                         new_time = datetime.time.fromisoformat(resolution.time)
                     except ValueError:
                         raise HTTPException(status_code=422, detail="Invalid new date or time")
-                    validate_slot(cur, auth["doctor_id"], appointment_id, new_date, new_time)
+                    session_minutes = validate_slot(
+                        cur, auth["doctor_id"], appointment_id, new_date, new_time
+                    )
                     cur.execute(
                         """UPDATE appointments
                            SET rescheduled_from_date = %s, rescheduled_from_time = %s,
-                               appointment_date = %s, appointment_time = %s, status = 'rescheduled'
+                               appointment_date = %s, appointment_time = %s,
+                               session_length_minutes = %s, status = 'rescheduled'
                            WHERE id = %s;""",
-                        (off_date, old_time, new_date, new_time, appointment_id),
+                        (
+                            off_date,
+                            old_time,
+                            new_date,
+                            new_time,
+                            session_minutes,
+                            appointment_id,
+                        ),
                     )
                     message = (
                         f"{doctor_name} rescheduled your appointment from "
@@ -2271,6 +2126,7 @@ def remove_doctor_day_off(
 
 @app.put("/doctor/appointments/{appointment_id}/reschedule")
 def reschedule_appointment(appointment_id: int, body: Reschedule, http_request: Request, auth=Depends(require_role("doctor"))):
+    expire_overdue_appointments()
     try:
         target_date = datetime.date.fromisoformat(body.date)
         target_time = datetime.time.fromisoformat(body.time)
@@ -2294,7 +2150,8 @@ def reschedule_appointment(appointment_id: int, body: Reschedule, http_request: 
         raise HTTPException(status_code=403, detail="Forbidden")
     cur.execute(
         "SELECT id, patient_id, appointment_date, appointment_time FROM appointments "
-        "WHERE id = %s AND doctor_id = %s FOR UPDATE;",
+        "WHERE id = %s AND doctor_id = %s "
+        "AND status IN ('scheduled', 'rescheduled') FOR UPDATE;",
         (appointment_id, auth["doctor_id"]),
     )
     appointment = cur.fetchone()
@@ -2302,7 +2159,9 @@ def reschedule_appointment(appointment_id: int, body: Reschedule, http_request: 
         cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail="Appointment not found")
-    validate_slot(cur, auth["doctor_id"], appointment_id, target_date, target_time)
+    session_minutes = validate_slot(
+        cur, auth["doctor_id"], appointment_id, target_date, target_time
+    )
     cur.execute("SELECT name FROM doctors WHERE id = %s;", (auth["doctor_id"],))
     doctor_row = cur.fetchone()
     doctor_name = doctor_row[0] if doctor_row else "Your doctor"
@@ -2312,10 +2171,18 @@ def reschedule_appointment(appointment_id: int, body: Reschedule, http_request: 
     cur.execute(
         """UPDATE appointments
            SET rescheduled_from_date = %s, rescheduled_from_time = %s,
-               appointment_date = %s, appointment_time = %s, status = 'rescheduled'
+               appointment_date = %s, appointment_time = %s,
+               session_length_minutes = %s, status = 'rescheduled'
            WHERE id = %s
            RETURNING id;""",
-        (old_date, old_time, target_date, target_time, appointment_id),
+        (
+            old_date,
+            old_time,
+            target_date,
+            target_time,
+            session_minutes,
+            appointment_id,
+        ),
     )
     message = (
         f"{doctor_name} rescheduled your appointment from "
@@ -2339,7 +2206,6 @@ def reschedule_appointment(appointment_id: int, body: Reschedule, http_request: 
          f"{old_date} {str(old_time)[:5]}",
          f"{target_date} {str(target_time)[:5]}"),
     )
-    audit(cur, auth["id"], "appointment_rescheduled", "appointment", appointment_id, http_request.client.host if http_request.client else None)
     try:
         conn.commit()
     except psycopg2.errors.UniqueViolation:
@@ -2392,8 +2258,6 @@ def update_doctor_care_notes(
         "WHERE id = %s AND doctor_id = %s;",
         (advice, revisit_date, revisit_notes, appointment_id, auth["doctor_id"]),
     )
-    audit(cur, auth["id"], "appointment_care_notes_updated", "appointment", appointment_id,
-          http_request.client.host if http_request.client else None)
     conn.commit()
     cur.close()
     conn.close()
@@ -2449,7 +2313,6 @@ def cancel_appointment_by_doctor(appointment_id: int, http_request: Request, aut
         "VALUES (%s, 'appointment_cancelled', 'appointment', %s, %s, 'cancelled_by_doctor');",
         (auth["doctor_id"], str(appointment_id), f"{old_date} {str(old_time)[:5]}"),
     )
-    audit(cur, auth["id"], "appointment_cancelled_by_doctor", "appointment", appointment_id, http_request.client.host if http_request.client else None)
     conn.commit()
     cur.close()
     conn.close()
@@ -2484,21 +2347,6 @@ def mark_notification_read(notification_id: int, auth=Depends(get_authenticated_
     cur.close()
     conn.close()
     return {"message": "Notification marked read"}
-
-
-@app.get("/admin/audit")
-def list_admin_audit(auth=Depends(require_role("admin"))):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, administrator_id, action, target_type, target_id, ip_address, created_at "
-        "FROM admin_audit_log ORDER BY created_at DESC LIMIT 500;"
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return [{"id": r[0], "administrator_id": r[1], "action": r[2], "target_type": r[3],
-             "target_id": r[4], "ip_address": r[5], "created_at": r[6]} for r in rows]
 
 
 if __name__ == "__main__":

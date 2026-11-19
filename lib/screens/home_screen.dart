@@ -7,7 +7,6 @@ import '../services/api_service.dart';
 import 'app_navigation.dart';
 import '../widgets/provider_card.dart';
 import 'doctor_profile_screen.dart';
-import 'login_screen.dart';
 import 'your_care_screen.dart';
 
 // Premium Color Tokens - Top Level for cross-widget access
@@ -48,10 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       debugPrint('❌ getMe failed: $e');
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-        );
+        Navigator.of(context, rootNavigator: true)
+            .pushNamedAndRemoveUntil('/welcome', (route) => false);
       }
     }
   }
@@ -155,8 +152,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       Navigator.of(
                         context,
                         rootNavigator: true,
-                      ).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      ).pushNamedAndRemoveUntil(
+                        '/welcome',
                         (route) => false,
                       );
                     }

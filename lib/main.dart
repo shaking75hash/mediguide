@@ -3,8 +3,12 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'screens/login_screen.dart';
 import 'screens/app_shell.dart';
+import 'screens/register_screens.dart';
+import 'screens/welcome_screen.dart';
 import 'services/appointment_notification_service.dart';
 import 'services/api_service.dart';
+import 'screens/role_screens.dart';
+import 'services/token_storage.dart';
 
 class AppColors {
   static const Color bgBase = Color(0xFFF9F9F7); // Warm paper
@@ -122,13 +126,40 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   var isLoggedIn = false;
-  try {
-    await ApiService.getMe();
-    isLoggedIn = true;
-  } catch (_) {
-    isLoggedIn = false;
+  String activeRole = 'patient';
+  activeRole = await TokenStorage.getActiveRole() ?? 'patient';
+  if (activeRole != 'patient' && activeRole != 'doctor') {
+    await TokenStorage.clearAll();
+    activeRole = 'patient';
   }
-  if (isLoggedIn) {
+  if (activeRole == 'doctor') {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    if (token == null) {
+      await TokenStorage.clearActiveRole();
+      activeRole = 'patient';
+    } else {
+      try {
+        await ApiService.getDoctorAppointments('');
+        isLoggedIn = true;
+      } catch (_) {
+        await TokenStorage.clearToken(role: 'doctor');
+        await TokenStorage.clearActiveRole();
+        activeRole = 'patient';
+      }
+    }
+  } else {
+    final token = await TokenStorage.getToken(role: 'patient');
+    if (token != null) {
+      try {
+        await ApiService.getMe();
+        isLoggedIn = true;
+      } catch (_) {
+        await TokenStorage.clearToken(role: 'patient');
+        await TokenStorage.clearActiveRole();
+      }
+    }
+  }
+  if (isLoggedIn && activeRole == 'patient') {
     try {
       final appointments = await ApiService.getMyAppointments();
       await AppointmentNotificationService.syncIfPermitted(appointments);
@@ -137,13 +168,14 @@ void main() async {
     }
   }
 
-  runApp(MediGuideApp(isLoggedIn: isLoggedIn));
+  runApp(MediGuideApp(isLoggedIn: isLoggedIn, role: activeRole));
 }
 
 class MediGuideApp extends StatelessWidget {
   final bool isLoggedIn;
+  final String role;
 
-  const MediGuideApp({super.key, required this.isLoggedIn});
+  const MediGuideApp({super.key, required this.isLoggedIn, this.role = 'patient'});
 
   @override
   Widget build(BuildContext context) {
@@ -151,7 +183,36 @@ class MediGuideApp extends StatelessWidget {
       title: 'MediGuide',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      home: isLoggedIn ? const AppShell() : const LoginScreen(),
+      home: !isLoggedIn
+          ? const WelcomeScreen()
+          : role == 'doctor'
+              ? const DoctorHomeScreen()
+              : const AppShell(),
+      onGenerateRoute: (settings) {
+        switch (settings.name) {
+          case '/welcome':
+            return MaterialPageRoute(
+              builder: (_) => const WelcomeScreen(),
+            );
+          case '/login':
+            return MaterialPageRoute(
+              builder: (_) => const LoginScreen(),
+            );
+          case '/register':
+            return MaterialPageRoute(
+              builder: (_) => const RegisterScreen(),
+            );
+          case '/doctor':
+            return MaterialPageRoute(
+              builder: (_) => const DoctorLoginScreen(),
+            );
+          case '/doctor/register':
+            return MaterialPageRoute(
+              builder: (_) => const RegisterAsDoctorScreen(),
+            );
+        }
+        return null;
+      },
     );
   }
 }

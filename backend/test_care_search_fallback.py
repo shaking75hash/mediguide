@@ -12,7 +12,7 @@ class DirectoryFallbackTests(unittest.TestCase):
     def test_fever_search_maps_to_local_general_physician(self):
         cursor = Mock()
         cursor.fetchall.return_value = [
-            (7, "Dr. Jahangir Alam", "General Physician", "Rajshahi", 500, True)
+            (7, "Dr. Jahangir Alam", "General Physician", "Rajshahi", 500, False, "Demo sample", True)
         ]
         connection = Mock()
         connection.cursor.return_value = cursor
@@ -21,6 +21,8 @@ class DirectoryFallbackTests(unittest.TestCase):
             results = _search_directory_doctors("Fever", "Rajshahi")
 
         self.assertEqual(results[0]["name"], "Dr. Jahangir Alam")
+        self.assertEqual(results[0]["qualification"], "Demo sample")
+        self.assertTrue(results[0]["is_sample"])
         self.assertTrue(results[0]["specialty_match"])
         self.assertEqual(results[0]["source"], "local_directory")
         query, parameters = cursor.execute.call_args.args
@@ -30,7 +32,7 @@ class DirectoryFallbackTests(unittest.TestCase):
     def test_kadirganj_uses_city_level_rajshahi_doctor_entries(self):
         cursor = Mock()
         cursor.fetchall.return_value = [
-            (1, "Dr. Abdul Mannan", "Cardiologist", "Rajshahi", 1000, True)
+            (1, "Dr. Abdul Mannan", "Cardiologist", "Rajshahi", 1000, False, "Demo sample", True)
         ]
         connection = Mock()
         connection.cursor.return_value = cursor

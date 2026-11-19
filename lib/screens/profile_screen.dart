@@ -4,7 +4,7 @@ import '../services/appointment_notification_service.dart';
 import '../services/api_service.dart';
 import 'appointment_care_notes_screen.dart';
 import 'health_records_screen.dart';
-import 'login_screen.dart';
+import 'role_screens.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -357,6 +357,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     },
                   ),
                   const SizedBox(height: 10),
+                  _profileAction(
+                    icon: Icons.notifications_outlined,
+                    title: 'Notifications',
+                    subtitle: 'Appointment updates and account messages',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const NotificationsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -481,10 +495,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         await ApiService.logout();
                         if (!context.mounted) return;
                         Navigator.of(context, rootNavigator: true)
-                            .pushAndRemoveUntil(
-                          MaterialPageRoute(
-                            builder: (_) => const LoginScreen(),
-                          ),
+                            .pushNamedAndRemoveUntil(
+                          '/welcome',
                           (route) => false,
                         );
                       },

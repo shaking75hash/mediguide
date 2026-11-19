@@ -73,7 +73,10 @@ configured as hosting-provider environment variables.
 The `render.yaml` Blueprint provisions the API and a separate PostgreSQL database.
 It uses the Render Postgres internal connection URL and generates a private JWT
 secret. The API initializes the required schema and a demo doctor catalogue at
-startup. It does not copy local users, appointments, or health records.
+startup. Each seeded doctor is marked as a sample, unverified profile and gets
+a doctor login. These demo logins are enabled only in the `APP_MODE=demo`
+Render test service; it does not copy local users, appointments, or health
+records.
 The diagnostic comparison catalogue also contains explicitly labelled sample
 Rajshahi facilities and example prices; these are for UI demonstration only,
 not verified offers.
@@ -119,6 +122,14 @@ Free web services can sleep when idle, and free Postgres databases expire after
 configure appropriate privacy, backup, and operational controls before any
 production or sensitive-data use.
 
+The sample doctors are fictional and must not be presented as real providers.
+Their qualifications are marked as sample data, and their profiles show a
+demo warning. The test service's demo password is intentionally public:
+`MediGuideDemo123!`. Login emails are generated from each sample doctor's name
+by lowercasing it, replacing punctuation and spaces with hyphens, and appending
+`@example.com` (for example, `dr-abdul-mannan@example.com`). Use these accounts
+only to test the app; do not enter real patient information.
+
 Run validation with:
 
 ```bash
@@ -126,10 +137,10 @@ flutter analyze
 flutter test
 ```
 
-## Role-based setup
+## Account setup
 
-Configure the environment variables in `.env.example`. Never use example
-`JWT_SECRET` or `FERNET_KEY` values in production.
+Configure the environment variables in `.env.example`. Never use the example
+`JWT_SECRET` value in production.
 
 Apply migrations from the repository root:
 
@@ -137,21 +148,15 @@ Apply migrations from the repository root:
 python -m backend.migrate
 ```
 
-Create the first administrator from the command line. Set `DATABASE_URL` to
-the intended database first; the command refuses to fall back to `DB_HOST` or
-other local database settings. For a hosted account, use the database's
-external connection URL and the matching `FERNET_KEY` from the backend
-service environment. The account-creation route is never exposed through HTTP.
-
-```bash
-export DATABASE_URL="postgresql://..."
-export FERNET_KEY="..."
-python -m backend.manage_admins
-```
-
-The command resets the password and TOTP enrollment for an existing admin
-with the same email. Add its printed TOTP secret to an authenticator app
-immediately, and never share that secret.
+Migration `004_remove_admin_accounts.sql` removes administrator accounts,
+invites, audit logs, and TOTP storage. Historical doctor requests and
+credentials are retained but are no longer used by the app. Migration
+`005_doctor_qualification.sql` adds the editable qualification field; existing
+doctor profiles start with it blank. Migration
+`006_demo_doctor_profiles.sql` marks the seeded Rajshahi doctors as fictional,
+unverified samples. Demo account creation requires both `APP_MODE=demo` and
+`ENABLE_DEMO_DOCTOR_ACCOUNTS=true`; the shared password is read from
+`DEMO_DOCTOR_PASSWORD`. Never enable this mode on a production service.
 
 Start the email outbox worker with SMTP or Mailpit:
 
@@ -162,8 +167,9 @@ python -m backend.email_worker
 The role model is:
 
 - `patient`: normal registration, booking, care records and notifications
-- `doctor`: identifier sign-in, own appointments and weekly schedule
-- `admin`: doctor administration, doctor-request review, invites and audit logs
+- `doctor`: self-registration with an email and password; profiles are listed
+  immediately and marked unverified. Doctors can update their location and
+  qualification from their personal profile.
 
 Development rate limiting uses in-memory counters. Set `REDIS_URL` and
 `APP_ENV=production` to use a Redis-backed deployment limiter.

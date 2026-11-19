@@ -19,12 +19,23 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
   bool _loadingTrust = true;
   Map<String, dynamic>? _insights;
   bool _loadingInsights = true;
+  Map<String, dynamic>? _latestDoctor;
 
   @override
   void initState() {
     super.initState();
+    _loadDoctor();
     _loadTrust();
     _loadInsights();
+  }
+
+  Future<void> _loadDoctor() async {
+    try {
+      final doctor = await ApiService.getDoctorById(widget.doctor['id'] as int);
+      if (mounted) setState(() => _latestDoctor = doctor);
+    } catch (error) {
+      debugPrint('Doctor profile refresh error: $error');
+    }
   }
 
   Future<void> _loadTrust() async {
@@ -53,144 +64,157 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final fee = widget.doctor['consultation_fee'] ?? 0;
+    final doctor = _latestDoctor ?? widget.doctor;
+    final fee = doctor['consultation_fee'] ?? 0;
+    final qualification = (doctor['qualification'] ?? '').toString().trim();
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.doctor['name'] ?? 'Doctor Profile')),
+      appBar: AppBar(title: Text(doctor['name'] ?? 'Doctor Profile')),
       body: SafeArea(
         bottom: true,
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
           child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.blue.shade100,
-                  child: Icon(
-                    Icons.person,
-                    size: 40,
-                    color: Colors.blue.shade700,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Section
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.blue.shade100,
+                    child: Icon(
+                      Icons.person,
+                      size: 40,
+                      color: Colors.blue.shade700,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.doctor['name'] ?? 'Dr. Name',
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          doctor['name'] ?? 'Dr. Name',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      Text(
-                        widget.doctor['specialty'] ?? 'Specialty',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 16,
+                        Text(
+                          doctor['specialty'] ?? 'Specialty',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 16,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (doctor['is_sample'] == true) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.shade300),
+                  ),
+                  child: const Text(
+                    'Demo profile only. This is fictional sample data, not a real provider.',
+                    style: TextStyle(
+                      color: Color(0xFF704B00),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            _loadingTrust
-                ? const SizedBox(
-                    height: 60,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : _trustData != null
-                ? TrustBadge(
-                    score: (_trustData!['overall_score'] as num).toDouble(),
-                    verifiedReviews: (_trustData!['verified_reviews'] as num)
-                        .toInt(),
-                  )
-                : const SizedBox.shrink(),
-            const SizedBox(height: 16),
-            const Divider(height: 32),
+              const SizedBox(height: 16),
+              _loadingTrust
+                  ? const SizedBox(
+                      height: 60,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : _trustData != null
+                  ? TrustBadge(
+                      score: (_trustData!['overall_score'] as num).toDouble(),
+                      verifiedReviews: (_trustData!['verified_reviews'] as num)
+                          .toInt(),
+                    )
+                  : const SizedBox.shrink(),
+              const SizedBox(height: 16),
+              const Divider(height: 32),
 
-            // Details Section
-            _buildDetailRow(
-              Icons.location_on,
-              'Location',
-              widget.doctor['location'] ?? 'Not specified',
-            ),
-            _buildDetailRow(
-              Icons.attach_money,
-              'Consultation Fee',
-              '\$${fee.toStringAsFixed(2)}',
-            ),
-            _buildDetailRow(
-              Icons.verified_user,
-              'Verification',
-              widget.doctor['is_verified'] == true
-                  ? 'Verified Professional'
-                  : 'Pending Verification',
-            ),
+              // Details Section
+              _buildDetailRow(
+                Icons.location_on,
+                'Location',
+                doctor['location'] ?? 'Not specified',
+              ),
+              _buildDetailRow(
+                Icons.school_outlined,
+                'Qualification',
+                qualification.isEmpty ? 'Not provided' : qualification,
+              ),
+              _buildDetailRow(
+                Icons.attach_money,
+                'Consultation Fee',
+                '\$${fee.toStringAsFixed(2)}',
+              ),
+              _buildDetailRow(
+                Icons.verified_user,
+                'Verification',
+                doctor['is_verified'] == true
+                    ? 'Verified Professional'
+                    : 'Pending Verification',
+              ),
 
-            const SizedBox(height: 32),
+              const SizedBox(height: 32),
 
-            _loadingInsights
-                ? const SizedBox(
-                    height: 100,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : _insights != null
-                ? SmartDecisionPanel(insights: _insights!)
-                : const SizedBox.shrink(),
-            const SizedBox(height: 20),
+              _loadingInsights
+                  ? const SizedBox(
+                      height: 100,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : _insights != null
+                  ? SmartDecisionPanel(insights: _insights!)
+                  : const SizedBox.shrink(),
+              const SizedBox(height: 40),
 
-            // Bio / Description
-            const Text(
-              'About',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Experienced ${widget.doctor['specialty']} dedicated to providing high-quality healthcare services. Committed to patient well-being and modern medical practices.',
-              style: const TextStyle(height: 1.5),
-            ),
-
-            const SizedBox(height: 40),
-
-            // Book Button
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => BookAppointmentScreen(
-                        doctorId: widget.doctor['id'],
-                        doctorName: widget.doctor['name'],
-                        specialty: widget.doctor['specialty'],
+              // Book Button
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BookAppointmentScreen(
+                          doctorId: doctor['id'],
+                          doctorName: doctor['name'],
+                          specialty: doctor['specialty'],
+                        ),
                       ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.calendar_today),
-                label: const Text(
-                  'Book Appointment',
-                  style: TextStyle(fontSize: 18),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                  foregroundColor: Colors.white,
+                    );
+                  },
+                  icon: const Icon(Icons.calendar_today),
+                  label: const Text(
+                    'Book Appointment',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

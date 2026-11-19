@@ -78,7 +78,7 @@ class _AppointmentCareNotesScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Record what your doctor advised during this visit.',
+                  'Keep your own follow-up notes for this visit.',
                   style: TextStyle(color: _muted, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
@@ -89,8 +89,8 @@ class _AppointmentCareNotesScreenState
                   maxLength: 5000,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: InputDecoration(
-                    labelText: 'Doctor’s advice',
-                    hintText: 'Medicines, care instructions, or other advice',
+                    labelText: 'Personal visit notes',
+                    hintText: 'Questions, observations, or things to remember',
                     alignLabelWithHint: true,
                     filled: true,
                     fillColor: Colors.white,
@@ -164,7 +164,7 @@ class _AppointmentCareNotesScreenState
                 ],
                 const SizedBox(height: 4),
                 Text(
-                  'These are your personal notes and are not verified by the clinic.',
+                  'These are your personal notes; clinic advice is shown by your doctor.',
                   style: TextStyle(color: _muted, fontSize: 11),
                 ),
               ],

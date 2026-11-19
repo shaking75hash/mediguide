@@ -70,6 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }
 
           await TokenStorage.saveToken(token);
+          await TokenStorage.saveActiveRole('patient');
           if (mounted) {
             Navigator.pushAndRemoveUntil(
               context,

@@ -120,6 +120,13 @@ class ApiService {
     throw Exception('Failed to load trust profile');
   }
 
+  static Future<Map<String, dynamic>> getDoctorById(int doctorId) async {
+    final response = await http.get(Uri.parse('$baseUrl/doctors/$doctorId'));
+    if (response.statusCode == 200) return json.decode(response.body);
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Could not load doctor profile');
+  }
+
   static Future<Map<String, dynamic>> getDoctorInsights(int doctorId) async {
     final response = await http.get(
       Uri.parse('$baseUrl/doctors/$doctorId/insights'),
@@ -218,7 +225,7 @@ class ApiService {
 
   // 🚪 Throw away the keycard
   static Future<void> logout() async {
-    await TokenStorage.clearToken();
+    await TokenStorage.clearAll();
   }
 
   // Get available slots
@@ -352,5 +359,260 @@ class ApiService {
     );
     if (response.statusCode == 200) return json.decode(response.body);
     throw Exception('Failed to load price comparison');
+  }
+
+  static Future<Map<String, dynamic>> registerDoctor({
+    required String name,
+    required String specialty,
+    required String location,
+    required String qualification,
+    required int consultationFee,
+    required String email,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$baseUrl/doctors/register');
+    try {
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'name': name,
+          'specialty': specialty,
+          'location': location,
+          'qualification': qualification,
+          'consultation_fee': consultationFee,
+          'email': email,
+          'password': password,
+        }),
+      );
+      if (response.statusCode == 201) {
+        final body = json.decode(response.body);
+        if (body is Map<String, dynamic>) return body;
+        throw Exception(
+          'The server returned an invalid registration response.',
+        );
+      }
+
+      if (response.statusCode == 405) {
+        throw Exception(
+          'Doctor registration is unavailable because the API server does not support '
+          'this endpoint. Please update or redeploy the backend.',
+        );
+      }
+
+      dynamic body;
+      try {
+        body = json.decode(response.body);
+      } catch (_) {
+        body = null;
+      }
+      final detail = body is Map ? body['detail'] : null;
+      throw Exception(detail?.toString() ?? 'Could not create doctor account');
+    } on http.ClientException catch (_) {
+      throw Exception('Could not reach the server. Check your connection.');
+    } catch (error) {
+      if (error is FormatException) {
+        throw Exception('The server returned an invalid response.');
+      }
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>> doctorLogin(
+    String email,
+    String password,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/doctor/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'email': email, 'password': password}),
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Sign-in failed');
+  }
+
+  static Future<Map<String, dynamic>> getDoctorProfile() async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctor/profile'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      await TokenStorage.clearToken(role: 'doctor');
+      await TokenStorage.clearActiveRole();
+    }
+    if (response.statusCode == 200) return json.decode(response.body);
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Could not load your profile');
+  }
+
+  static Future<Map<String, dynamic>> updateDoctorProfile({
+    required String location,
+    required String qualification,
+  }) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.put(
+      Uri.parse('$baseUrl/doctor/profile'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({'location': location, 'qualification': qualification}),
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      await TokenStorage.clearToken(role: 'doctor');
+      await TokenStorage.clearActiveRole();
+    }
+    if (response.statusCode == 200) return json.decode(response.body);
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Could not save your profile');
+  }
+
+  static Future<List<dynamic>> getDoctorAppointments(String date) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctor/appointments')
+          .replace(queryParameters: {'date': date}),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      await TokenStorage.clearToken(role: 'doctor');
+    }
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Could not load doctor appointments');
+  }
+
+  static Future<List<dynamic>> getNotifications() async {
+    final token = await TokenStorage.getToken();
+    final response = await http.get(
+      Uri.parse('$baseUrl/notifications'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Could not load notifications');
+  }
+
+  static Future<void> rescheduleDoctorAppointment(
+    int appointmentId,
+    String date,
+    String time,
+  ) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.put(
+      Uri.parse('$baseUrl/doctor/appointments/$appointmentId/reschedule'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({'date': date, 'time': time}),
+    );
+    if (response.statusCode != 200) {
+      final body = json.decode(response.body);
+      throw Exception(body['detail'] ?? 'Could not reschedule appointment');
+    }
+  }
+
+  static Future<void> cancelDoctorAppointment(int appointmentId) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.delete(
+      Uri.parse('$baseUrl/doctor/appointments/$appointmentId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200)
+      throw Exception('Could not cancel appointment');
+  }
+
+  static Future<List<dynamic>> getDoctorSchedule() async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctor/schedule'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Could not load schedule');
+  }
+
+  static Future<void> replaceDoctorSchedule(
+    List<Map<String, dynamic>> ranges,
+  ) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.put(
+      Uri.parse('$baseUrl/doctor/schedule'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({'ranges': ranges}),
+    );
+    if (response.statusCode == 200) return;
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Could not update schedule');
+  }
+
+  static Future<List<String>> getDoctorFreeSlots(String date) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctor/free-slots')
+          .replace(queryParameters: {'date': date}),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      final body = json.decode(response.body);
+      return List<String>.from(body['slots'] ?? const <String>[]);
+    }
+    throw Exception('Could not load free slots');
+  }
+
+  static Future<List<dynamic>> getDoctorDaysOff() async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.get(
+      Uri.parse('$baseUrl/doctor/days-off'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) return json.decode(response.body);
+    throw Exception('Could not load days off');
+  }
+
+  static Future<void> createDoctorDayOff(
+    String date,
+    String? reason,
+    List<Map<String, dynamic>> resolutions,
+    bool cancelAll,
+  ) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.post(
+      Uri.parse('$baseUrl/doctor/days-off'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'date': date,
+        'reason': reason,
+        'resolutions': resolutions,
+        'cancel_all': cancelAll,
+      }),
+    );
+    if (response.statusCode == 200) return;
+    final body = json.decode(response.body);
+    throw Exception(body['detail'] ?? 'Could not save day off');
+  }
+
+  static Future<void> removeDoctorDayOff(String date) async {
+    final token = await TokenStorage.getToken(role: 'doctor');
+    final response = await http.delete(
+      Uri.parse('$baseUrl/doctor/days-off/$date'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) throw Exception('Could not remove day off');
+  }
+
+  static Future<void> markNotificationRead(int notificationId) async {
+    final token = await TokenStorage.getToken();
+    await http.post(
+      Uri.parse('$baseUrl/notifications/$notificationId/read'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
   }
 }
